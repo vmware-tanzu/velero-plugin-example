@@ -146,10 +146,10 @@
   revision = "f5742cb6b85602e7fa834e9d5d91a7d7fa850824"
 
 [[projects]]
-  branch = "master"
   name = "github.com/heptio/ark"
   packages = ["pkg/apis/ark/v1","pkg/backup","pkg/buildinfo","pkg/client","pkg/cloudprovider","pkg/discovery","pkg/generated/clientset/versioned","pkg/generated/clientset/versioned/scheme","pkg/generated/clientset/versioned/typed/ark/v1","pkg/plugin","pkg/plugin/generated","pkg/restore","pkg/util/boolptr","pkg/util/collections","pkg/util/kube","pkg/util/logging","third_party/kubernetes/pkg/kubectl/cmd/util"]
-  revision = "3100e856a03ff0b9c841571bb00339e8daee56ea"
+  revision = "632c90bd081b6b99c006c836aee1d6689078e0e2"
+  version = "v0.6.0"
 
 [[projects]]
   branch = "master"
@@ -303,6 +303,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "2ba52b27994c9fd10c9e5eb9cb6789ebc2424bb856298a2f363215ff5adfcfe6"
+  inputs-digest = "4b4bfb1e86d2203e35babb85e2b297d801b000c0e8e9bff2df6f50f624c4d186"
   solver-name = "gps-cdcl"
   solver-version = 1
