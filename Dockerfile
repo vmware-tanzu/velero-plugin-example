@@ -16,4 +16,4 @@ FROM alpine:3.6
 RUN mkdir /plugins
 ADD ark-* /plugins/
 USER nobody:nobody
-ENTRYPOINT ["/bin/ash", "-c", "cp -a /plugins/* /target/."]
+ENTRYPOINT ["/bin/bash", "-c", "cp -a /plugins/* /target/."]
