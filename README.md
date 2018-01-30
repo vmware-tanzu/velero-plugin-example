@@ -41,7 +41,15 @@ $ make container IMAGE=your-repo/your-name:here
 To deploy your plugin image to an Ark server:
 
 1. Make sure your image is pushed to a registry that is accessible to your cluster's nodes.
-1. Run `ark plugin add <image>`, e.g. `ark plugin add gcr.io/heptio-images/ark-plugin-example`
+2. Run `ark plugin add <image>`, e.g. `ark plugin add gcr.io/heptio-images/ark-plugin-example`
+
+# Using the plugins
+
+When the plugin is deployed, it is only made available to use. To make the plugin effective, you must modify your configuration:
+    
+1. Run `kubectl edit config <config-name> -n <ark-namespace>` e.g. `kubectl edit config default -n heptio-ark`
+2. Change the name of section: `backupStorageProvider` for **Object Store** plugin, `persistentVolumeProvider` for **Block Store** plugin
+3. Save and quit, the plugin will be used for the next `backup/restore`
 
 # Creating your own plugin project
 
