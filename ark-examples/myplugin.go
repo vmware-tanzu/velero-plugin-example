@@ -26,19 +26,19 @@ import (
 	"github.com/heptio/ark/pkg/backup"
 )
 
-// MyPlugin is a backup item action plugin for Heptio Ark.
-type MyPlugin struct {
+// BackupPlugin is a backup item action plugin for Heptio Ark.
+type BackupPlugin struct {
 	log logrus.FieldLogger
 }
 
 // AppliesTo returns a backup.ResourceSelector that applies to everything.
-func (p *MyPlugin) AppliesTo() (backup.ResourceSelector, error) {
+func (p *BackupPlugin) AppliesTo() (backup.ResourceSelector, error) {
 	return backup.ResourceSelector{}, nil
 }
 
 // Execute sets a custom annotation on the item being backed up.
-func (p *MyPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []backup.ResourceIdentifier, error) {
-	p.log.Info("Hello from MyPlugin!")
+func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []backup.ResourceIdentifier, error) {
+	p.log.Info("Hello from BackupPlugin!")
 
 	metadata, err := meta.Accessor(item)
 	if err != nil {

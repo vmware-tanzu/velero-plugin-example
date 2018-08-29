@@ -13,12 +13,41 @@
 # limitations under the License.
 
 ---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: mypv
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/tmp"
+
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: nginx-example
   labels:
     app: nginx
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mypvc
+  namespace: nginx-example
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+
 
 ---
 apiVersion: apps/v1beta1

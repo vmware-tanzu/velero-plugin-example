@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -31,9 +32,12 @@ type FileObjectStore struct {
 	log logrus.FieldLogger
 }
 
+// Init initializes the plugin. After v0.10.0, this can be called multiple times.
 func (f *FileObjectStore) Init(config map[string]string) error {
 	f.log.Infof("FileObjectStore.Init called")
-	return os.MkdirAll(getRoot(), 0755)
+
+	path := filepath.Join(getRoot(), config["bucket"], config["prefix"])
+	return os.MkdirAll(path, 0755)
 }
 
 func (f *FileObjectStore) PutObject(bucket string, key string, body io.Reader) error {
@@ -66,7 +70,7 @@ func (f *FileObjectStore) PutObject(bucket string, key string, body io.Reader) e
 	return err
 }
 
-func (f *FileObjectStore) GetObject(bucket string, key string) (io.ReadCloser, error) {
+func (f *FileObjectStore) GetObject(bucket, key string) (io.ReadCloser, error) {
 	path := filepath.Join(getRoot(), bucket, key)
 
 	log := f.log.WithFields(logrus.Fields{
@@ -79,13 +83,14 @@ func (f *FileObjectStore) GetObject(bucket string, key string) (io.ReadCloser, e
 	return os.Open(path)
 }
 
-func (f *FileObjectStore) ListCommonPrefixes(bucket string, delimiter string) ([]string, error) {
-	path := filepath.Join(getRoot(), bucket, delimiter)
+func (f *FileObjectStore) ListCommonPrefixes(bucket, prefix, delimiter string) ([]string, error) {
+	path := filepath.Join(getRoot(), bucket, prefix, delimiter)
 
 	log := f.log.WithFields(logrus.Fields{
 		"bucket":    bucket,
 		"delimiter": delimiter,
 		"path":      path,
+		"prefix":    prefix,
 	})
 	log.Infof("ListCommonPrefixes")
 
@@ -104,7 +109,7 @@ func (f *FileObjectStore) ListCommonPrefixes(bucket string, delimiter string) ([
 	return dirs, nil
 }
 
-func (f *FileObjectStore) ListObjects(bucket string, prefix string) ([]string, error) {
+func (f *FileObjectStore) ListObjects(bucket, prefix string) ([]string, error) {
 	path := filepath.Join(getRoot(), bucket, prefix)
 
 	log := f.log.WithFields(logrus.Fields{
@@ -121,13 +126,13 @@ func (f *FileObjectStore) ListObjects(bucket string, prefix string) ([]string, e
 
 	var objects []string
 	for _, info := range infos {
-		objects = append(objects, info.Name())
+		objects = append(objects, filepath.Join(prefix, info.Name()))
 	}
 
 	return objects, nil
 }
 
-func (f *FileObjectStore) DeleteObject(bucket string, key string) error {
+func (f *FileObjectStore) DeleteObject(bucket, key string) error {
 	path := filepath.Join(getRoot(), bucket, key)
 
 	log := f.log.WithFields(logrus.Fields{
@@ -137,10 +142,38 @@ func (f *FileObjectStore) DeleteObject(bucket string, key string) error {
 	})
 	log.Infof("DeleteObject")
 
-	return os.Remove(path)
+	err := os.Remove(path)
+
+	// This logic is specific to a file system; we need to clean up the backup directory
+	// if there's nothing left. "Normal" object stores only mimic directory structures and don't need this.
+	keyParts := strings.Split(key, "/")
+	var backupPath string
+	if len(keyParts) > 1 {
+		backupPath = filepath.Join(getRoot(), bucket, keyParts[0], keyParts[1])
+	}
+	if backupPath != "" {
+		infos, err := ioutil.ReadDir(backupPath)
+		if err != nil {
+			return err
+		}
+		if len(infos) == 0 {
+			l := f.log.WithFields(logrus.Fields{
+				"backupPath": backupPath,
+			})
+			l.Infof("Deleted backup directory")
+			os.Remove(backupPath)
+		}
+	}
+
+	return err
 }
 
-func (f *FileObjectStore) CreateSignedURL(bucket string, key string, ttl time.Duration) (string, error) {
+func (f *FileObjectStore) CreateSignedURL(bucket, key string, ttl time.Duration) (string, error) {
+	log := f.log.WithFields(logrus.Fields{
+		"bucket": bucket,
+		"key":    key,
+	})
+	log.Infof("CreateSignedURL")
 	return "", errors.New("CreateSignedURL is not supported for this plugin")
 }
 
