@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -55,7 +54,7 @@ type BackupService interface {
 
 	// CreateSignedURL creates a pre-signed URL that can be used to download a file from object
 	// storage. The URL expires after ttl.
-	CreateSignedURL(target api.DownloadTarget, bucket string, ttl time.Duration) (string, error)
+	CreateSignedURL(target api.DownloadTarget, bucket, directory string, ttl time.Duration) (string, error)
 
 	// UploadRestoreLog uploads the restore's log file to object storage.
 	UploadRestoreLog(bucket, backup, restore string, log io.Reader) error
@@ -78,37 +77,37 @@ const (
 	restoreResultsFileFormatString = "%s/restore-%s-results.gz"
 )
 
-func getMetadataKey(backup string) string {
-	return fmt.Sprintf(metadataFileFormatString, backup)
+func getMetadataKey(directory string) string {
+	return fmt.Sprintf(metadataFileFormatString, directory)
 }
 
-func getBackupContentsKey(backup string) string {
-	return fmt.Sprintf(backupFileFormatString, backup, backup)
+func getBackupContentsKey(directory, backup string) string {
+	return fmt.Sprintf(backupFileFormatString, directory, backup)
 }
 
-func getBackupLogKey(backup string) string {
-	return fmt.Sprintf(backupLogFileFormatString, backup, backup)
+func getBackupLogKey(directory, backup string) string {
+	return fmt.Sprintf(backupLogFileFormatString, directory, backup)
 }
 
-func getRestoreLogKey(backup, restore string) string {
-	return fmt.Sprintf(restoreLogFileFormatString, backup, restore)
+func getRestoreLogKey(directory, restore string) string {
+	return fmt.Sprintf(restoreLogFileFormatString, directory, restore)
 }
 
-func getRestoreResultsKey(backup, restore string) string {
-	return fmt.Sprintf(restoreResultsFileFormatString, backup, restore)
+func getRestoreResultsKey(directory, restore string) string {
+	return fmt.Sprintf(restoreResultsFileFormatString, directory, restore)
 }
 
 type backupService struct {
 	objectStore ObjectStore
 	decoder     runtime.Decoder
-	logger      *logrus.Logger
+	logger      logrus.FieldLogger
 }
 
 var _ BackupService = &backupService{}
 var _ BackupGetter = &backupService{}
 
 // NewBackupService creates a backup service using the provided object store
-func NewBackupService(objectStore ObjectStore, logger *logrus.Logger) BackupService {
+func NewBackupService(objectStore ObjectStore, logger logrus.FieldLogger) BackupService {
 	return &backupService{
 		objectStore: objectStore,
 		decoder:     scheme.Codecs.UniversalDecoder(api.SchemeGroupVersion),
@@ -116,37 +115,68 @@ func NewBackupService(objectStore ObjectStore, logger *logrus.Logger) BackupServ
 	}
 }
 
+func seekToBeginning(r io.Reader) error {
+	seeker, ok := r.(io.Seeker)
+	if !ok {
+		return nil
+	}
+
+	_, err := seeker.Seek(0, 0)
+	return err
+}
+
+func (br *backupService) seekAndPutObject(bucket, key string, file io.Reader) error {
+	if file == nil {
+		return nil
+	}
+
+	if err := seekToBeginning(file); err != nil {
+		return errors.WithStack(err)
+	}
+
+	return br.objectStore.PutObject(bucket, key, file)
+}
+
 func (br *backupService) UploadBackup(bucket, backupName string, metadata, backup, log io.Reader) error {
-	// upload metadata file
-	metadataKey := getMetadataKey(backupName)
-	if err := br.objectStore.PutObject(bucket, metadataKey, metadata); err != nil {
-		// failure to upload metadata file is a hard-stop
-		return err
-	}
-
-	// upload tar file
-	if err := br.objectStore.PutObject(bucket, getBackupContentsKey(backupName), backup); err != nil {
-		// try to delete the metadata file since the data upload failed
-		deleteErr := br.objectStore.DeleteObject(bucket, metadataKey)
-
-		return kerrors.NewAggregate([]error{err, deleteErr})
-	}
-
-	// uploading log file is best-effort; if it fails, we log the error but call the overall upload a
-	// success
-	logKey := getBackupLogKey(backupName)
-	if err := br.objectStore.PutObject(bucket, logKey, log); err != nil {
+	// Uploading the log file is best-effort; if it fails, we log the error but it doesn't impact the
+	// backup's status.
+	logKey := getBackupLogKey(backupName, backupName)
+	if err := br.seekAndPutObject(bucket, logKey, log); err != nil {
 		br.logger.WithError(err).WithFields(logrus.Fields{
 			"bucket": bucket,
 			"key":    logKey,
 		}).Error("Error uploading log file")
 	}
 
+	if metadata == nil {
+		// If we don't have metadata, something failed, and there's no point in continuing. An object
+		// storage bucket that is missing the metadata file can't be restored, nor can its logs be
+		// viewed.
+		return nil
+	}
+
+	// upload metadata file
+	metadataKey := getMetadataKey(backupName)
+	if err := br.seekAndPutObject(bucket, metadataKey, metadata); err != nil {
+		// failure to upload metadata file is a hard-stop
+		return err
+	}
+
+	if backup != nil {
+		// upload tar file
+		if err := br.seekAndPutObject(bucket, getBackupContentsKey(backupName, backupName), backup); err != nil {
+			// try to delete the metadata file since the data upload failed
+			deleteErr := br.objectStore.DeleteObject(bucket, metadataKey)
+
+			return kerrors.NewAggregate([]error{err, deleteErr})
+		}
+	}
+
 	return nil
 }
 
 func (br *backupService) DownloadBackup(bucket, backupName string) (io.ReadCloser, error) {
-	return br.objectStore.GetObject(bucket, getBackupContentsKey(backupName))
+	return br.objectStore.GetObject(bucket, getBackupContentsKey(backupName, backupName))
 }
 
 func (br *backupService) GetAllBackups(bucket string) ([]*api.Backup, error) {
@@ -173,8 +203,8 @@ func (br *backupService) GetAllBackups(bucket string) ([]*api.Backup, error) {
 	return output, nil
 }
 
-func (br *backupService) GetBackup(bucket, name string) (*api.Backup, error) {
-	key := fmt.Sprintf(metadataFileFormatString, name)
+func (br *backupService) GetBackup(bucket, backupName string) (*api.Backup, error) {
+	key := getMetadataKey(backupName)
 
 	res, err := br.objectStore.GetObject(bucket, key)
 	if err != nil {
@@ -220,30 +250,19 @@ func (br *backupService) DeleteBackupDir(bucket, backupName string) error {
 	return errors.WithStack(kerrors.NewAggregate(errs))
 }
 
-func (br *backupService) CreateSignedURL(target api.DownloadTarget, bucket string, ttl time.Duration) (string, error) {
+func (br *backupService) CreateSignedURL(target api.DownloadTarget, bucket, directory string, ttl time.Duration) (string, error) {
 	switch target.Kind {
 	case api.DownloadTargetKindBackupContents:
-		return br.objectStore.CreateSignedURL(bucket, getBackupContentsKey(target.Name), ttl)
+		return br.objectStore.CreateSignedURL(bucket, getBackupContentsKey(directory, target.Name), ttl)
 	case api.DownloadTargetKindBackupLog:
-		return br.objectStore.CreateSignedURL(bucket, getBackupLogKey(target.Name), ttl)
+		return br.objectStore.CreateSignedURL(bucket, getBackupLogKey(directory, target.Name), ttl)
 	case api.DownloadTargetKindRestoreLog:
-		backup := extractBackupName(target.Name)
-		return br.objectStore.CreateSignedURL(bucket, getRestoreLogKey(backup, target.Name), ttl)
+		return br.objectStore.CreateSignedURL(bucket, getRestoreLogKey(directory, target.Name), ttl)
 	case api.DownloadTargetKindRestoreResults:
-		backup := extractBackupName(target.Name)
-		return br.objectStore.CreateSignedURL(bucket, getRestoreResultsKey(backup, target.Name), ttl)
+		return br.objectStore.CreateSignedURL(bucket, getRestoreResultsKey(directory, target.Name), ttl)
 	default:
 		return "", errors.Errorf("unsupported download target kind %q", target.Kind)
 	}
-}
-
-func extractBackupName(s string) string {
-	// restore name is formatted as <backup name>-<timestamp>
-	i := strings.LastIndex(s, "-")
-	if i < 0 {
-		i = len(s)
-	}
-	return s[0:i]
 }
 
 func (br *backupService) UploadRestoreLog(bucket, backup, restore string, log io.Reader) error {
@@ -268,7 +287,7 @@ func NewBackupServiceWithCachedBackupGetter(
 	ctx context.Context,
 	delegate BackupService,
 	resyncPeriod time.Duration,
-	logger *logrus.Logger,
+	logger logrus.FieldLogger,
 ) BackupService {
 	return &cachedBackupService{
 		BackupService: delegate,

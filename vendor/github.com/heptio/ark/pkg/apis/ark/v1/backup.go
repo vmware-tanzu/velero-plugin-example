@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ type BackupSpec struct {
 	// SnapshotVolumes specifies whether to take cloud snapshots
 	// of any PV's referenced in the set of objects included
 	// in the Backup.
-	SnapshotVolumes *bool `json:"snapshotVolumes"`
+	SnapshotVolumes *bool `json:"snapshotVolumes,omitempty"`
 
 	// TTL is a time.Duration-parseable string describing how long
 	// the Backup should be retained for.
@@ -80,9 +80,15 @@ type BackupResourceHookSpec struct {
 	// ExcludedResources specifies the resources to which this hook spec does not apply.
 	ExcludedResources []string `json:"excludedResources"`
 	// LabelSelector, if specified, filters the resources to which this hook spec applies.
-	LabelSelector *metav1.LabelSelector `json:"labelSelector"`
-	// Hooks is a list of BackupResourceHooks to execute.
+	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
+	// Hooks is a list of BackupResourceHooks to execute. DEPRECATED. Replaced by PreHooks.
 	Hooks []BackupResourceHook `json:"hooks"`
+	// PreHooks is a list of BackupResourceHooks to execute prior to storing the item in the backup.
+	// These are executed before any "additional items" from item actions are processed.
+	PreHooks []BackupResourceHook `json:"pre,omitempty"`
+	// PostHooks is a list of BackupResourceHooks to execute after storing the item in the backup.
+	// These are executed after all "additional items" from item actions are processed.
+	PostHooks []BackupResourceHook `json:"post,omitempty"`
 }
 
 // BackupResourceHook defines a hook for a resource.
@@ -137,9 +143,12 @@ const (
 	// errors.
 	BackupPhaseCompleted BackupPhase = "Completed"
 
-	// BackupPhaseFailed mean the backup ran but encountered an error that
+	// BackupPhaseFailed means the backup ran but encountered an error that
 	// prevented it from completing successfully.
 	BackupPhaseFailed BackupPhase = "Failed"
+
+	// BackupPhaseDeleting means the backup and all its associated data are being deleted.
+	BackupPhaseDeleting BackupPhase = "Deleting"
 )
 
 // BackupStatus captures the current status of an Ark backup.
@@ -161,6 +170,17 @@ type BackupStatus struct {
 	// ValidationErrors is a slice of all validation errors (if
 	// applicable).
 	ValidationErrors []string `json:"validationErrors"`
+
+	// StartTimestamp records the time a backup was started.
+	// Separate from CreationTimestamp, since that value changes
+	// on restores.
+	// The server's time is used for StartTimestamps
+	StartTimestamp metav1.Time `json:"startTimestamp"`
+
+	// CompletionTimestamp records the time a backup was completed.
+	// Completion time is recorded even on failed backups.
+	// The server's time is used for CompletionTimestamps
+	CompletionTimestamp metav1.Time `json:"completionTimestamp"`
 }
 
 // VolumeBackupInfo captures the required information about

@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,8 +19,10 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -34,6 +36,8 @@ import (
 	"github.com/heptio/ark/pkg/client"
 	"github.com/heptio/ark/pkg/cloudprovider"
 	"github.com/heptio/ark/pkg/discovery"
+	"github.com/heptio/ark/pkg/podexec"
+	"github.com/heptio/ark/pkg/restic"
 	"github.com/heptio/ark/pkg/util/collections"
 	kubeutil "github.com/heptio/ark/pkg/util/kube"
 	"github.com/heptio/ark/pkg/util/logging"
@@ -48,11 +52,13 @@ type Backupper interface {
 
 // kubernetesBackupper implements Backupper.
 type kubernetesBackupper struct {
-	dynamicFactory        client.DynamicFactory
-	discoveryHelper       discovery.Helper
-	podCommandExecutor    podCommandExecutor
-	groupBackupperFactory groupBackupperFactory
-	snapshotService       cloudprovider.SnapshotService
+	dynamicFactory         client.DynamicFactory
+	discoveryHelper        discovery.Helper
+	podCommandExecutor     podexec.PodCommandExecutor
+	groupBackupperFactory  groupBackupperFactory
+	snapshotService        cloudprovider.SnapshotService
+	resticBackupperFactory restic.BackupperFactory
+	resticTimeout          time.Duration
 }
 
 type itemKey struct {
@@ -73,19 +79,33 @@ func (i *itemKey) String() string {
 	return fmt.Sprintf("resource=%s,namespace=%s,name=%s", i.resource, i.namespace, i.name)
 }
 
+func cohabitatingResources() map[string]*cohabitatingResource {
+	return map[string]*cohabitatingResource{
+		"deployments":     newCohabitatingResource("deployments", "extensions", "apps"),
+		"daemonsets":      newCohabitatingResource("daemonsets", "extensions", "apps"),
+		"replicasets":     newCohabitatingResource("replicasets", "extensions", "apps"),
+		"networkpolicies": newCohabitatingResource("networkpolicies", "extensions", "networking.k8s.io"),
+		"events":          newCohabitatingResource("events", "", "events.k8s.io"),
+	}
+}
+
 // NewKubernetesBackupper creates a new kubernetesBackupper.
 func NewKubernetesBackupper(
 	discoveryHelper discovery.Helper,
 	dynamicFactory client.DynamicFactory,
-	podCommandExecutor podCommandExecutor,
+	podCommandExecutor podexec.PodCommandExecutor,
 	snapshotService cloudprovider.SnapshotService,
+	resticBackupperFactory restic.BackupperFactory,
+	resticTimeout time.Duration,
 ) (Backupper, error) {
 	return &kubernetesBackupper{
-		discoveryHelper:       discoveryHelper,
-		dynamicFactory:        dynamicFactory,
-		podCommandExecutor:    podCommandExecutor,
-		groupBackupperFactory: &defaultGroupBackupperFactory{},
-		snapshotService:       snapshotService,
+		discoveryHelper:        discoveryHelper,
+		dynamicFactory:         dynamicFactory,
+		podCommandExecutor:     podCommandExecutor,
+		groupBackupperFactory:  &defaultGroupBackupperFactory{},
+		snapshotService:        snapshotService,
+		resticBackupperFactory: resticBackupperFactory,
+		resticTimeout:          resticTimeout,
 	}, nil
 }
 
@@ -151,26 +171,43 @@ func getNamespaceIncludesExcludes(backup *api.Backup) *collections.IncludesExclu
 func getResourceHooks(hookSpecs []api.BackupResourceHookSpec, discoveryHelper discovery.Helper) ([]resourceHook, error) {
 	resourceHooks := make([]resourceHook, 0, len(hookSpecs))
 
-	for _, r := range hookSpecs {
-		h := resourceHook{
-			name:       r.Name,
-			namespaces: collections.NewIncludesExcludes().Includes(r.IncludedNamespaces...).Excludes(r.ExcludedNamespaces...),
-			resources:  getResourceIncludesExcludes(discoveryHelper, r.IncludedResources, r.ExcludedResources),
-			hooks:      r.Hooks,
-		}
-
-		if r.LabelSelector != nil {
-			labelSelector, err := metav1.LabelSelectorAsSelector(r.LabelSelector)
-			if err != nil {
-				return []resourceHook{}, errors.WithStack(err)
-			}
-			h.labelSelector = labelSelector
+	for _, s := range hookSpecs {
+		h, err := getResourceHook(s, discoveryHelper)
+		if err != nil {
+			return []resourceHook{}, err
 		}
 
 		resourceHooks = append(resourceHooks, h)
 	}
 
 	return resourceHooks, nil
+}
+
+func getResourceHook(hookSpec api.BackupResourceHookSpec, discoveryHelper discovery.Helper) (resourceHook, error) {
+	// Use newer PreHooks if it's set
+	preHooks := hookSpec.PreHooks
+	if len(preHooks) == 0 {
+		// Fall back to Hooks otherwise (DEPRECATED)
+		preHooks = hookSpec.Hooks
+	}
+
+	h := resourceHook{
+		name:       hookSpec.Name,
+		namespaces: collections.NewIncludesExcludes().Includes(hookSpec.IncludedNamespaces...).Excludes(hookSpec.ExcludedNamespaces...),
+		resources:  getResourceIncludesExcludes(discoveryHelper, hookSpec.IncludedResources, hookSpec.ExcludedResources),
+		pre:        preHooks,
+		post:       hookSpec.PostHooks,
+	}
+
+	if hookSpec.LabelSelector != nil {
+		labelSelector, err := metav1.LabelSelectorAsSelector(hookSpec.LabelSelector)
+		if err != nil {
+			return resourceHook{}, errors.WithStack(err)
+		}
+		h.labelSelector = labelSelector
+	}
+
+	return h, nil
 }
 
 // Backup backs up the items specified in the Backup, placing them in a gzip-compressed tar file
@@ -205,22 +242,33 @@ func (kb *kubernetesBackupper) Backup(backup *api.Backup, backupFile, logFile io
 		return err
 	}
 
-	var labelSelector string
-	if backup.Spec.LabelSelector != nil {
-		labelSelector = metav1.FormatLabelSelector(backup.Spec.LabelSelector)
-	}
-
 	backedUpItems := make(map[itemKey]struct{})
 	var errs []error
-
-	cohabitatingResources := map[string]*cohabitatingResource{
-		"deployments":     newCohabitatingResource("deployments", "extensions", "apps"),
-		"networkpolicies": newCohabitatingResource("networkpolicies", "extensions", "networking.k8s.io"),
-	}
 
 	resolvedActions, err := resolveActions(actions, kb.discoveryHelper)
 	if err != nil {
 		return err
+	}
+
+	podVolumeTimeout := kb.resticTimeout
+	if val := backup.Annotations[api.PodVolumeOperationTimeoutAnnotation]; val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil {
+			log.WithError(errors.WithStack(err)).Errorf("Unable to parse pod volume timeout annotation %s, using server value.", val)
+		} else {
+			podVolumeTimeout = parsed
+		}
+	}
+
+	ctx, cancelFunc := context.WithTimeout(context.Background(), podVolumeTimeout)
+	defer cancelFunc()
+
+	var resticBackupper restic.Backupper
+	if kb.resticBackupperFactory != nil {
+		resticBackupper, err = kb.resticBackupperFactory.NewBackupper(ctx, backup)
+		if err != nil {
+			return errors.WithStack(err)
+		}
 	}
 
 	gb := kb.groupBackupperFactory.newGroupBackupper(
@@ -228,16 +276,17 @@ func (kb *kubernetesBackupper) Backup(backup *api.Backup, backupFile, logFile io
 		backup,
 		namespaceIncludesExcludes,
 		resourceIncludesExcludes,
-		labelSelector,
 		kb.dynamicFactory,
 		kb.discoveryHelper,
 		backedUpItems,
-		cohabitatingResources,
+		cohabitatingResources(),
 		resolvedActions,
 		kb.podCommandExecutor,
 		tw,
 		resourceHooks,
 		kb.snapshotService,
+		resticBackupper,
+		newPVCSnapshotTracker(),
 	)
 
 	for _, group := range kb.discoveryHelper.Resources() {
@@ -246,7 +295,7 @@ func (kb *kubernetesBackupper) Backup(backup *api.Backup, backupFile, logFile io
 		}
 	}
 
-	err = kuberrs.NewAggregate(errs)
+	err = kuberrs.Flatten(kuberrs.NewAggregate(errs))
 	if err == nil {
 		log.Infof("Backup completed successfully")
 	} else {

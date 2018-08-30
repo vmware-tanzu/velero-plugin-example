@@ -74,8 +74,6 @@ const (
 	// PluginKindRestoreItemAction is the Kind string for
 	// a Restore ItemAction plugin.
 	PluginKindRestoreItemAction PluginKind = "restoreitemaction"
-
-	pluginDir = "/plugins"
 )
 
 var AllPluginKinds = []PluginKind{
@@ -113,7 +111,7 @@ type Manager interface {
 
 	// CloseBackupItemActions terminates the plugin sub-processes that
 	// are hosting BackupItemAction plugins for the given backup name.
-	CloseBackupItemActions(backupName string) error
+	CloseBackupItemActions(backupName string)
 
 	// GetRestoreItemActions returns all restore.ItemAction plugins.
 	// These plugin instances should ONLY be used for a single restore
@@ -124,7 +122,10 @@ type Manager interface {
 
 	// CloseRestoreItemActions terminates the plugin sub-processes that
 	// are hosting RestoreItemAction plugins for the given restore name.
-	CloseRestoreItemActions(restoreName string) error
+	CloseRestoreItemActions(restoreName string)
+
+	// CloseAllClients terminates all plugin subprocesses.
+	CloseAllClients()
 }
 
 type manager struct {
@@ -132,15 +133,17 @@ type manager struct {
 	logLevel       logrus.Level
 	pluginRegistry *registry
 	clientStore    *clientStore
+	pluginDir      string
 }
 
 // NewManager constructs a manager for getting plugin implementations.
-func NewManager(logger logrus.FieldLogger, level logrus.Level) (Manager, error) {
+func NewManager(logger logrus.FieldLogger, level logrus.Level, pluginDir string) (Manager, error) {
 	m := &manager{
 		logger:         logger,
 		logLevel:       level,
 		pluginRegistry: newRegistry(),
 		clientStore:    newClientStore(),
+		pluginDir:      pluginDir,
 	}
 
 	if err := m.registerPlugins(); err != nil {
@@ -161,7 +164,12 @@ func pluginForKind(kind PluginKind) plugin.Plugin {
 	}
 }
 
-func getPluginInstance(client *plugin.Client, kind PluginKind) (interface{}, error) {
+type pluginClient interface {
+	Client() (plugin.ClientProtocol, error)
+	Kill()
+}
+
+func getPluginInstance(client pluginClient, kind PluginKind) (interface{}, error) {
 	protocolClient, err := client.Client()
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -176,25 +184,30 @@ func getPluginInstance(client *plugin.Client, kind PluginKind) (interface{}, err
 }
 
 func (m *manager) registerPlugins() error {
+	arkCommand := os.Args[0]
+
 	// first, register internal plugins
 	for _, provider := range []string{"aws", "gcp", "azure"} {
-		m.pluginRegistry.register(provider, "/ark", []string{"run-plugin", "cloudprovider", provider}, PluginKindObjectStore, PluginKindBlockStore)
+		m.pluginRegistry.register(provider, arkCommand, []string{"run-plugin", "cloudprovider", provider}, PluginKindObjectStore, PluginKindBlockStore)
 	}
-	m.pluginRegistry.register("pv", "/ark", []string{"run-plugin", string(PluginKindBackupItemAction), "pv"}, PluginKindBackupItemAction)
+	m.pluginRegistry.register("pv", arkCommand, []string{"run-plugin", string(PluginKindBackupItemAction), "pv"}, PluginKindBackupItemAction)
+	m.pluginRegistry.register("backup-pod", arkCommand, []string{"run-plugin", string(PluginKindBackupItemAction), "pod"}, PluginKindBackupItemAction)
+	m.pluginRegistry.register("serviceaccount", arkCommand, []string{"run-plugin", string(PluginKindBackupItemAction), "serviceaccount"}, PluginKindBackupItemAction)
 
-	m.pluginRegistry.register("job", "/ark", []string{"run-plugin", string(PluginKindRestoreItemAction), "job"}, PluginKindRestoreItemAction)
-	m.pluginRegistry.register("pod", "/ark", []string{"run-plugin", string(PluginKindRestoreItemAction), "pod"}, PluginKindRestoreItemAction)
-	m.pluginRegistry.register("svc", "/ark", []string{"run-plugin", string(PluginKindRestoreItemAction), "svc"}, PluginKindRestoreItemAction)
+	m.pluginRegistry.register("job", arkCommand, []string{"run-plugin", string(PluginKindRestoreItemAction), "job"}, PluginKindRestoreItemAction)
+	m.pluginRegistry.register("restore-pod", arkCommand, []string{"run-plugin", string(PluginKindRestoreItemAction), "pod"}, PluginKindRestoreItemAction)
+	m.pluginRegistry.register("svc", arkCommand, []string{"run-plugin", string(PluginKindRestoreItemAction), "svc"}, PluginKindRestoreItemAction)
+	m.pluginRegistry.register("restic", arkCommand, []string{"run-plugin", string(PluginKindRestoreItemAction), "restic"}, PluginKindRestoreItemAction)
 
 	// second, register external plugins (these will override internal plugins, if applicable)
-	if _, err := os.Stat(pluginDir); err != nil {
+	if _, err := os.Stat(m.pluginDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
 
-	files, err := ioutil.ReadDir(pluginDir)
+	files, err := ioutil.ReadDir(m.pluginDir)
 	if err != nil {
 		return err
 	}
@@ -206,9 +219,9 @@ func (m *manager) registerPlugins() error {
 		}
 
 		if kind == PluginKindCloudProvider {
-			m.pluginRegistry.register(name, filepath.Join(pluginDir, file.Name()), nil, PluginKindObjectStore, PluginKindBlockStore)
+			m.pluginRegistry.register(name, filepath.Join(m.pluginDir, file.Name()), nil, PluginKindObjectStore, PluginKindBlockStore)
 		} else {
-			m.pluginRegistry.register(name, filepath.Join(pluginDir, file.Name()), nil, kind)
+			m.pluginRegistry.register(name, filepath.Join(m.pluginDir, file.Name()), nil, kind)
 		}
 	}
 
@@ -340,8 +353,8 @@ func (m *manager) GetBackupItemActions(backupName string) ([]backup.ItemAction, 
 
 // CloseBackupItemActions terminates the plugin sub-processes that
 // are hosting BackupItemAction plugins for the given backup name.
-func (m *manager) CloseBackupItemActions(backupName string) error {
-	return closeAll(m.clientStore, PluginKindBackupItemAction, backupName)
+func (m *manager) CloseBackupItemActions(backupName string) {
+	closeAll(m.clientStore, PluginKindBackupItemAction, backupName)
 }
 
 func (m *manager) GetRestoreItemActions(restoreName string) ([]restore.ItemAction, error) {
@@ -389,14 +402,18 @@ func (m *manager) GetRestoreItemActions(restoreName string) ([]restore.ItemActio
 
 // CloseRestoreItemActions terminates the plugin sub-processes that
 // are hosting RestoreItemAction plugins for the given restore name.
-func (m *manager) CloseRestoreItemActions(restoreName string) error {
-	return closeAll(m.clientStore, PluginKindRestoreItemAction, restoreName)
+func (m *manager) CloseRestoreItemActions(restoreName string) {
+	closeAll(m.clientStore, PluginKindRestoreItemAction, restoreName)
 }
 
-func closeAll(store *clientStore, kind PluginKind, scope string) error {
+func closeAll(store *clientStore, kind PluginKind, scope string) {
 	clients, err := store.list(kind, scope)
 	if err != nil {
-		return err
+		// store.list(...) only returns an error if no clients are
+		// found for the specified kind and scope. We don't need
+		// to treat this as an error when trying to close all clients,
+		// because this means there are no clients to close.
+		return
 	}
 
 	for _, client := range clients {
@@ -404,6 +421,12 @@ func closeAll(store *clientStore, kind PluginKind, scope string) error {
 	}
 
 	store.deleteAll(kind, scope)
+}
 
-	return nil
+func (m *manager) CloseAllClients() {
+	for _, client := range m.clientStore.listAll() {
+		client.Kill()
+	}
+
+	m.clientStore.clear()
 }

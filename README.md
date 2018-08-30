@@ -75,7 +75,7 @@ You most likely won't need to edit this file, as long as you follow this convent
 If you need to pull in additional dependencies to your vendor directory, just run
 
 ```bash
-$ ./dep-save.sh
+$ dep ensure
 ```
 
 # Combining multiple plugins in one file

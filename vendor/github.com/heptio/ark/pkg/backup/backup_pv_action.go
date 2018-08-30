@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,13 +17,12 @@ limitations under the License.
 package backup
 
 import (
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/heptio/ark/pkg/apis/ark/v1"
+	"github.com/heptio/ark/pkg/kuberesource"
 	"github.com/heptio/ark/pkg/util/collections"
 )
 
@@ -37,16 +36,14 @@ func NewBackupPVAction(log logrus.FieldLogger) ItemAction {
 	return &backupPVAction{log: log}
 }
 
-var pvGroupResource = schema.GroupResource{Group: "", Resource: "persistentvolumes"}
-
 func (a *backupPVAction) AppliesTo() (ResourceSelector, error) {
 	return ResourceSelector{
 		IncludedResources: []string{"persistentvolumeclaims"},
 	}, nil
 }
 
-// Execute finds the PersistentVolume referenced by the provided
-// PersistentVolumeClaim and backs it up
+// Execute finds the PersistentVolume bound by the provided
+// PersistentVolumeClaim, if any, and backs it up
 func (a *backupPVAction) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []ResourceIdentifier, error) {
 	a.log.Info("Executing backupPVAction")
 
@@ -55,12 +52,16 @@ func (a *backupPVAction) Execute(item runtime.Unstructured, backup *v1.Backup) (
 	pvc := item.UnstructuredContent()
 
 	volumeName, err := collections.GetString(pvc, "spec.volumeName")
-	if err != nil {
-		return nil, nil, errors.WithMessage(err, "unable to get spec.volumeName")
+	// if there's no volume name, it's not an error, since it's possible
+	// for the PVC not be bound; don't return an additional PV item to
+	// back up.
+	if err != nil || volumeName == "" {
+		a.log.Info("No spec.volumeName found for PersistentVolumeClaim")
+		return nil, nil, nil
 	}
 
 	additionalItems = append(additionalItems, ResourceIdentifier{
-		GroupResource: pvGroupResource,
+		GroupResource: kuberesource.PersistentVolumes,
 		Name:          volumeName,
 	})
 

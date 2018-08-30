@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -121,4 +121,22 @@ func Exists(root map[string]interface{}, path string) bool {
 
 	_, err := GetValue(root, path)
 	return err == nil
+}
+
+// MergeMaps takes two map[string]string and merges missing keys from the second into the first.
+// If a key already exists, its value is not overwritten.
+func MergeMaps(first, second map[string]string) map[string]string {
+	// If the first map passed in is empty, just use all of the second map's data
+	if first == nil {
+		first = map[string]string{}
+	}
+
+	for k, v := range second {
+		_, ok := first[k]
+		if !ok {
+			first[k] = v
+		}
+	}
+
+	return first
 }
