@@ -55,15 +55,15 @@ import (
 	"github.com/heptio/ark/pkg/restic"
 	"github.com/heptio/ark/pkg/util/boolptr"
 	"github.com/heptio/ark/pkg/util/collections"
+	"github.com/heptio/ark/pkg/util/filesystem"
 	"github.com/heptio/ark/pkg/util/kube"
-	"github.com/heptio/ark/pkg/util/logging"
 	arksync "github.com/heptio/ark/pkg/util/sync"
 )
 
 // Restorer knows how to restore a backup.
 type Restorer interface {
 	// Restore restores the backup data from backupReader, returning warnings and errors.
-	Restore(restore *api.Restore, backup *api.Backup, backupReader io.Reader, logFile io.Writer, actions []ItemAction) (api.RestoreResult, api.RestoreResult)
+	Restore(log logrus.FieldLogger, restore *api.Restore, backup *api.Backup, backupReader io.Reader, actions []ItemAction) (api.RestoreResult, api.RestoreResult)
 }
 
 type gvString string
@@ -73,14 +73,13 @@ type kindString string
 type kubernetesRestorer struct {
 	discoveryHelper       discovery.Helper
 	dynamicFactory        client.DynamicFactory
-	backupService         cloudprovider.BackupService
-	snapshotService       cloudprovider.SnapshotService
+	blockStore            cloudprovider.BlockStore
 	backupClient          arkv1client.BackupsGetter
 	namespaceClient       corev1.NamespaceInterface
 	resticRestorerFactory restic.RestorerFactory
 	resticTimeout         time.Duration
 	resourcePriorities    []string
-	fileSystem            FileSystem
+	fileSystem            filesystem.Interface
 	logger                logrus.FieldLogger
 }
 
@@ -146,8 +145,7 @@ func prioritizeResources(helper discovery.Helper, priorities []string, includedR
 func NewKubernetesRestorer(
 	discoveryHelper discovery.Helper,
 	dynamicFactory client.DynamicFactory,
-	backupService cloudprovider.BackupService,
-	snapshotService cloudprovider.SnapshotService,
+	blockStore cloudprovider.BlockStore,
 	resourcePriorities []string,
 	backupClient arkv1client.BackupsGetter,
 	namespaceClient corev1.NamespaceInterface,
@@ -158,22 +156,22 @@ func NewKubernetesRestorer(
 	return &kubernetesRestorer{
 		discoveryHelper:       discoveryHelper,
 		dynamicFactory:        dynamicFactory,
-		backupService:         backupService,
-		snapshotService:       snapshotService,
+		blockStore:            blockStore,
 		backupClient:          backupClient,
 		namespaceClient:       namespaceClient,
 		resticRestorerFactory: resticRestorerFactory,
 		resticTimeout:         resticTimeout,
 		resourcePriorities:    resourcePriorities,
-		fileSystem:            &osFileSystem{},
 		logger:                logger,
+
+		fileSystem: filesystem.NewFileSystem(),
 	}, nil
 }
 
 // Restore executes a restore into the target Kubernetes cluster according to the restore spec
 // and using data from the provided backup/backup reader. Returns a warnings and errors RestoreResult,
 // respectively, summarizing info about the restore.
-func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, backupReader io.Reader, logFile io.Writer, actions []ItemAction) (api.RestoreResult, api.RestoreResult) {
+func (kr *kubernetesRestorer) Restore(log logrus.FieldLogger, restore *api.Restore, backup *api.Backup, backupReader io.Reader, actions []ItemAction) (api.RestoreResult, api.RestoreResult) {
 	// metav1.LabelSelectorAsSelector converts a nil LabelSelector to a
 	// Nothing Selector, i.e. a selector that matches nothing. We want
 	// a selector that matches everything. This can be accomplished by
@@ -187,14 +185,6 @@ func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, 
 	if err != nil {
 		return api.RestoreResult{}, api.RestoreResult{Ark: []string{err.Error()}}
 	}
-
-	gzippedLog := gzip.NewWriter(logFile)
-	defer gzippedLog.Close()
-
-	log := logrus.New()
-	log.Out = gzippedLog
-	log.Hooks.Add(&logging.ErrorLocationHook{})
-	log.Hooks.Add(&logging.LogLocationHook{})
 
 	// get resource includes-excludes
 	resourceIncludesExcludes := getResourceIncludesExcludes(kr.discoveryHelper, restore.Spec.IncludedResources, restore.Spec.ExcludedResources)
@@ -234,7 +224,7 @@ func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, 
 		snapshotVolumes: backup.Spec.SnapshotVolumes,
 		restorePVs:      restore.Spec.RestorePVs,
 		volumeBackups:   backup.Status.VolumeBackups,
-		snapshotService: kr.snapshotService,
+		blockStore:      kr.blockStore,
 	}
 
 	restoreCtx := &context{
@@ -248,7 +238,7 @@ func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, 
 		fileSystem:           kr.fileSystem,
 		namespaceClient:      kr.namespaceClient,
 		actions:              resolvedActions,
-		snapshotService:      kr.snapshotService,
+		blockStore:           kr.blockStore,
 		resticRestorer:       resticRestorer,
 		pvsToProvision:       sets.NewString(),
 		pvRestorer:           pvRestorer,
@@ -326,10 +316,10 @@ type context struct {
 	selector             labels.Selector
 	logger               logrus.FieldLogger
 	dynamicFactory       client.DynamicFactory
-	fileSystem           FileSystem
+	fileSystem           filesystem.Interface
 	namespaceClient      corev1.NamespaceInterface
 	actions              []resolvedAction
-	snapshotService      cloudprovider.SnapshotService
+	blockStore           cloudprovider.BlockStore
 	resticRestorer       restic.Restorer
 	globalWaitGroup      arksync.ErrorGroup
 	resourceWaitGroup    sync.WaitGroup
@@ -740,10 +730,6 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 
 			ctx.infof("Executing item action for %v", &groupResource)
 
-			if logSetter, ok := action.ItemAction.(logging.LogSetter); ok {
-				logSetter.SetLog(ctx.logger)
-			}
-
 			updatedObj, warning, err := action.Execute(obj, ctx.restore)
 			if warning != nil {
 				addToResult(&warnings, namespace, fmt.Errorf("warning preparing %s: %v", fullPath, warning))
@@ -774,8 +760,10 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 			obj.SetNamespace(namespace)
 		}
 
-		// add an ark-restore label to each resource for easy ID
-		addLabel(obj, api.RestoreLabelKey, ctx.restore.Name)
+		// label the resource with the restore's name and the restored backup's name
+		// for easy identification of all cluster resources created by this restore
+		// and which backup they came from
+		addRestoreLabels(obj, ctx.restore.Name, ctx.restore.Spec.BackupName)
 
 		ctx.infof("Restoring %s: %v", obj.GroupVersionKind().Kind, name)
 		createdObj, restoreErr := resourceClient.Create(obj)
@@ -794,10 +782,10 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 				continue
 			}
 
-			// We know the cluster won't have the restore name label, so
-			// copy it over from the backup
-			restoreName := obj.GetLabels()[api.RestoreLabelKey]
-			addLabel(fromCluster, api.RestoreLabelKey, restoreName)
+			// We know the object from the cluster won't have the backup/restore name labels, so
+			// copy them from the object we attempted to restore.
+			labels := obj.GetLabels()
+			addRestoreLabels(fromCluster, labels[api.RestoreNameLabel], labels[api.BackupNameLabel])
 
 			if !equality.Semantic.DeepEqual(fromCluster, obj) {
 				switch groupResource {
@@ -915,7 +903,7 @@ type pvRestorer struct {
 	snapshotVolumes *bool
 	restorePVs      *bool
 	volumeBackups   map[string]*api.VolumeBackupInfo
-	snapshotService cloudprovider.SnapshotService
+	blockStore      cloudprovider.BlockStore
 }
 
 func (r *pvRestorer) executePVAction(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
@@ -951,7 +939,7 @@ func (r *pvRestorer) executePVAction(obj *unstructured.Unstructured) (*unstructu
 
 	// Past this point, we expect to be doing a restore
 
-	if r.snapshotService == nil {
+	if r.blockStore == nil {
 		return nil, errors.New("you must configure a persistentVolumeProvider to restore PersistentVolumes from snapshots")
 	}
 
@@ -963,13 +951,13 @@ func (r *pvRestorer) executePVAction(obj *unstructured.Unstructured) (*unstructu
 	)
 
 	log.Info("restoring persistent volume from snapshot")
-	volumeID, err := r.snapshotService.CreateVolumeFromSnapshot(backupInfo.SnapshotID, backupInfo.Type, backupInfo.AvailabilityZone, backupInfo.Iops)
+	volumeID, err := r.blockStore.CreateVolumeFromSnapshot(backupInfo.SnapshotID, backupInfo.Type, backupInfo.AvailabilityZone, backupInfo.Iops)
 	if err != nil {
 		return nil, err
 	}
 	log.Info("successfully restored persistent volume from snapshot")
 
-	updated1, err := r.snapshotService.SetVolumeID(obj, volumeID)
+	updated1, err := r.blockStore.SetVolumeID(obj, volumeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1011,15 +999,22 @@ func resetMetadataAndStatus(obj *unstructured.Unstructured) (*unstructured.Unstr
 	return obj, nil
 }
 
-// addLabel applies the specified key/value to an object as a label.
-func addLabel(obj *unstructured.Unstructured, key string, val string) {
+// addRestoreLabels labels the provided object with the restore name and
+// the restored backup's name.
+func addRestoreLabels(obj metav1.Object, restoreName, backupName string) {
 	labels := obj.GetLabels()
 
 	if labels == nil {
 		labels = make(map[string]string)
 	}
 
-	labels[key] = val
+	labels[api.BackupNameLabel] = backupName
+	labels[api.RestoreNameLabel] = restoreName
+
+	// TODO(1.0): remove the below line, and remove the `RestoreLabelKey`
+	// constant from the API pkg, since it's been replaced with the
+	// namespaced label above.
+	labels[api.RestoreLabelKey] = restoreName
 
 	obj.SetLabels(labels)
 }
