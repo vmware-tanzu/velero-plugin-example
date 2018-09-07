@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,30 +17,37 @@ limitations under the License.
 package client
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/heptio/ark/pkg/apis/ark/v1"
 	clientset "github.com/heptio/ark/pkg/generated/clientset/versioned"
 )
 
 // Factory knows how to create an ArkClient and Kubernetes client.
 type Factory interface {
-	// BindFlags binds common flags such as --kubeconfig to the passed-in FlagSet.
+	// BindFlags binds common flags (--kubeconfig, --namespace) to the passed-in FlagSet.
 	BindFlags(flags *pflag.FlagSet)
 	// Client returns an ArkClient. It uses the following priority to specify the cluster
-	// configuration:  --kubeconfig flag, KUBECONFIG environment variable, in-cluster configuration.
+	// configuration: --kubeconfig flag, KUBECONFIG environment variable, in-cluster configuration.
 	Client() (clientset.Interface, error)
 	// KubeClient returns a Kubernetes client. It uses the following priority to specify the cluster
-	// configuration:  --kubeconfig flag, KUBECONFIG environment variable, in-cluster configuration.
+	// configuration: --kubeconfig flag, KUBECONFIG environment variable, in-cluster configuration.
 	KubeClient() (kubernetes.Interface, error)
+	Namespace() string
 }
 
 type factory struct {
-	flags      *pflag.FlagSet
-	kubeconfig string
-	baseName   string
+	flags       *pflag.FlagSet
+	kubeconfig  string
+	kubecontext string
+	baseName    string
+	namespace   string
 }
 
 // NewFactory returns a Factory.
@@ -49,7 +56,20 @@ func NewFactory(baseName string) Factory {
 		flags:    pflag.NewFlagSet("", pflag.ContinueOnError),
 		baseName: baseName,
 	}
+
+	if config, err := LoadConfig(); err == nil {
+		f.namespace = config[ConfigKeyNamespace]
+	} else {
+		fmt.Fprintf(os.Stderr, "WARNING: error retrieving namespace from config file: %v\n", err)
+	}
+
+	if f.namespace == "" {
+		f.namespace = v1.DefaultNamespace
+	}
+
 	f.flags.StringVar(&f.kubeconfig, "kubeconfig", "", "Path to the kubeconfig file to use to talk to the Kubernetes apiserver. If unset, try the environment variable KUBECONFIG, as well as in-cluster configuration")
+	f.flags.StringVarP(&f.namespace, "namespace", "n", f.namespace, "The namespace in which Ark should operate")
+	f.flags.StringVar(&f.kubecontext, "kubecontext", "", "The context to use to talk to the Kubernetes apiserver. If unset defaults to whatever your current-context is (kubectl config current-context)")
 
 	return f
 }
@@ -59,7 +79,7 @@ func (f *factory) BindFlags(flags *pflag.FlagSet) {
 }
 
 func (f *factory) Client() (clientset.Interface, error) {
-	clientConfig, err := Config(f.kubeconfig, f.baseName)
+	clientConfig, err := Config(f.kubeconfig, f.kubecontext, f.baseName)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +92,7 @@ func (f *factory) Client() (clientset.Interface, error) {
 }
 
 func (f *factory) KubeClient() (kubernetes.Interface, error) {
-	clientConfig, err := Config(f.kubeconfig, f.baseName)
+	clientConfig, err := Config(f.kubeconfig, f.kubecontext, f.baseName)
 	if err != nil {
 		return nil, err
 	}
@@ -82,4 +102,8 @@ func (f *factory) KubeClient() (kubernetes.Interface, error) {
 		return nil, errors.WithStack(err)
 	}
 	return kubeClient, nil
+}
+
+func (f *factory) Namespace() string {
+	return f.namespace
 }

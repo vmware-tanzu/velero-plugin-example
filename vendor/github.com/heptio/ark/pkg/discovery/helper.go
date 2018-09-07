@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,22 +45,27 @@ type Helper interface {
 	// Refresh pulls an updated set of Ark-backuppable resources from the
 	// discovery API.
 	Refresh() error
+
+	// APIGroups gets the current set of supported APIGroups
+	// in the cluster.
+	APIGroups() []metav1.APIGroup
 }
 
 type helper struct {
 	discoveryClient discovery.DiscoveryInterface
-	logger          *logrus.Logger
+	logger          logrus.FieldLogger
 
 	// lock guards mapper, resources and resourcesMap
 	lock         sync.RWMutex
 	mapper       meta.RESTMapper
 	resources    []*metav1.APIResourceList
 	resourcesMap map[schema.GroupVersionResource]metav1.APIResource
+	apiGroups    []metav1.APIGroup
 }
 
 var _ Helper = &helper{}
 
-func NewHelper(discoveryClient discovery.DiscoveryInterface, logger *logrus.Logger) (Helper, error) {
+func NewHelper(discoveryClient discovery.DiscoveryInterface, logger logrus.FieldLogger) (Helper, error) {
 	h := &helper{
 		discoveryClient: discoveryClient,
 	}
@@ -108,9 +113,7 @@ func (h *helper) Refresh() error {
 	}
 
 	h.resources = discovery.FilteredBy(
-		discovery.ResourcePredicateFunc(func(groupVersion string, r *metav1.APIResource) bool {
-			return discovery.SupportsAllVerbs{Verbs: []string{"list", "create"}}.Match(groupVersion, r)
-		}),
+		discovery.ResourcePredicateFunc(filterByVerbs),
 		preferredResources,
 	)
 
@@ -129,7 +132,17 @@ func (h *helper) Refresh() error {
 		}
 	}
 
+	apiGroupList, err := h.discoveryClient.ServerGroups()
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	h.apiGroups = apiGroupList.Groups
+
 	return nil
+}
+
+func filterByVerbs(groupVersion string, r *metav1.APIResource) bool {
+	return discovery.SupportsAllVerbs{Verbs: []string{"list", "create", "get", "delete"}}.Match(groupVersion, r)
 }
 
 // sortResources sources resources by moving extensions to the end of the slice. The order of all
@@ -162,4 +175,10 @@ func (h *helper) Resources() []*metav1.APIResourceList {
 	h.lock.RLock()
 	defer h.lock.RUnlock()
 	return h.resources
+}
+
+func (h *helper) APIGroups() []metav1.APIGroup {
+	h.lock.RLock()
+	defer h.lock.RUnlock()
+	return h.apiGroups
 }

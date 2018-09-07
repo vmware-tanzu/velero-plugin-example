@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Heptio Inc.
+Copyright 2017 the Heptio Ark contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package restore
 import (
 	"archive/tar"
 	"compress/gzip"
+	go_context "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,18 +27,23 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/watch"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	api "github.com/heptio/ark/pkg/apis/ark/v1"
@@ -45,10 +51,13 @@ import (
 	"github.com/heptio/ark/pkg/cloudprovider"
 	"github.com/heptio/ark/pkg/discovery"
 	arkv1client "github.com/heptio/ark/pkg/generated/clientset/versioned/typed/ark/v1"
+	"github.com/heptio/ark/pkg/kuberesource"
+	"github.com/heptio/ark/pkg/restic"
 	"github.com/heptio/ark/pkg/util/boolptr"
 	"github.com/heptio/ark/pkg/util/collections"
 	"github.com/heptio/ark/pkg/util/kube"
 	"github.com/heptio/ark/pkg/util/logging"
+	arksync "github.com/heptio/ark/pkg/util/sync"
 )
 
 // Restorer knows how to restore a backup.
@@ -62,15 +71,17 @@ type kindString string
 
 // kubernetesRestorer implements Restorer for restoring into a Kubernetes cluster.
 type kubernetesRestorer struct {
-	discoveryHelper    discovery.Helper
-	dynamicFactory     client.DynamicFactory
-	backupService      cloudprovider.BackupService
-	snapshotService    cloudprovider.SnapshotService
-	backupClient       arkv1client.BackupsGetter
-	namespaceClient    corev1.NamespaceInterface
-	resourcePriorities []string
-	fileSystem         FileSystem
-	logger             *logrus.Logger
+	discoveryHelper       discovery.Helper
+	dynamicFactory        client.DynamicFactory
+	backupService         cloudprovider.BackupService
+	snapshotService       cloudprovider.SnapshotService
+	backupClient          arkv1client.BackupsGetter
+	namespaceClient       corev1.NamespaceInterface
+	resticRestorerFactory restic.RestorerFactory
+	resticTimeout         time.Duration
+	resourcePriorities    []string
+	fileSystem            FileSystem
+	logger                logrus.FieldLogger
 }
 
 // prioritizeResources returns an ordered, fully-resolved list of resources to restore based on
@@ -140,18 +151,22 @@ func NewKubernetesRestorer(
 	resourcePriorities []string,
 	backupClient arkv1client.BackupsGetter,
 	namespaceClient corev1.NamespaceInterface,
-	logger *logrus.Logger,
+	resticRestorerFactory restic.RestorerFactory,
+	resticTimeout time.Duration,
+	logger logrus.FieldLogger,
 ) (Restorer, error) {
 	return &kubernetesRestorer{
-		discoveryHelper:    discoveryHelper,
-		dynamicFactory:     dynamicFactory,
-		backupService:      backupService,
-		snapshotService:    snapshotService,
-		backupClient:       backupClient,
-		namespaceClient:    namespaceClient,
-		resourcePriorities: resourcePriorities,
-		fileSystem:         &osFileSystem{},
-		logger:             logger,
+		discoveryHelper:       discoveryHelper,
+		dynamicFactory:        dynamicFactory,
+		backupService:         backupService,
+		snapshotService:       snapshotService,
+		backupClient:          backupClient,
+		namespaceClient:       namespaceClient,
+		resticRestorerFactory: resticRestorerFactory,
+		resticTimeout:         resticTimeout,
+		resourcePriorities:    resourcePriorities,
+		fileSystem:            &osFileSystem{},
+		logger:                logger,
 	}, nil
 }
 
@@ -193,7 +208,36 @@ func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, 
 		return api.RestoreResult{}, api.RestoreResult{Ark: []string{err.Error()}}
 	}
 
-	ctx := &context{
+	podVolumeTimeout := kr.resticTimeout
+	if val := restore.Annotations[api.PodVolumeOperationTimeoutAnnotation]; val != "" {
+		parsed, err := time.ParseDuration(val)
+		if err != nil {
+			log.WithError(errors.WithStack(err)).Errorf("Unable to parse pod volume timeout annotation %s, using server value.", val)
+		} else {
+			podVolumeTimeout = parsed
+		}
+	}
+
+	ctx, cancelFunc := go_context.WithTimeout(go_context.Background(), podVolumeTimeout)
+	defer cancelFunc()
+
+	var resticRestorer restic.Restorer
+	if kr.resticRestorerFactory != nil {
+		resticRestorer, err = kr.resticRestorerFactory.NewRestorer(ctx, restore)
+		if err != nil {
+			return api.RestoreResult{}, api.RestoreResult{Ark: []string{err.Error()}}
+		}
+	}
+
+	pvRestorer := &pvRestorer{
+		logger:          log,
+		snapshotVolumes: backup.Spec.SnapshotVolumes,
+		restorePVs:      restore.Spec.RestorePVs,
+		volumeBackups:   backup.Status.VolumeBackups,
+		snapshotService: kr.snapshotService,
+	}
+
+	restoreCtx := &context{
 		backup:               backup,
 		backupReader:         backupReader,
 		restore:              restore,
@@ -205,10 +249,12 @@ func (kr *kubernetesRestorer) Restore(restore *api.Restore, backup *api.Backup, 
 		namespaceClient:      kr.namespaceClient,
 		actions:              resolvedActions,
 		snapshotService:      kr.snapshotService,
-		waitForPVs:           true,
+		resticRestorer:       resticRestorer,
+		pvsToProvision:       sets.NewString(),
+		pvRestorer:           pvRestorer,
 	}
 
-	return ctx.execute()
+	return restoreCtx.execute()
 }
 
 // getResourceIncludesExcludes takes the lists of resources to include and exclude, uses the
@@ -284,7 +330,12 @@ type context struct {
 	namespaceClient      corev1.NamespaceInterface
 	actions              []resolvedAction
 	snapshotService      cloudprovider.SnapshotService
-	waitForPVs           bool
+	resticRestorer       restic.Restorer
+	globalWaitGroup      arksync.ErrorGroup
+	resourceWaitGroup    sync.WaitGroup
+	resourceWatches      []watch.Interface
+	pvsToProvision       sets.String
+	pvRestorer           PVRestorer
 }
 
 func (ctx *context) infof(msg string, args ...interface{}) {
@@ -340,10 +391,20 @@ func (ctx *context) restoreFromDir(dir string) (api.RestoreResult, api.RestoreRe
 
 	existingNamespaces := sets.NewString()
 
+	// TODO this is not optimal since it'll keep watches open for all resources/namespaces
+	// until the very end of the restore. This should be done per resource type. Deferring
+	// refactoring for now since this may be able to be removed entirely if we eliminate
+	// waiting for PV snapshot restores.
+	defer func() {
+		for _, watch := range ctx.resourceWatches {
+			watch.Stop()
+		}
+	}()
+
 	for _, resource := range ctx.prioritizedResources {
 		// we don't want to explicitly restore namespace API objs because we'll handle
 		// them as a special case prior to restoring anything into them
-		if resource.Group == "" && resource.Resource == "namespaces" {
+		if resource == kuberesource.Namespaces {
 			continue
 		}
 
@@ -422,6 +483,23 @@ func (ctx *context) restoreFromDir(dir string) (api.RestoreResult, api.RestoreRe
 			merge(&warnings, &w)
 			merge(&errs, &e)
 		}
+
+		// TODO timeout?
+		ctx.logger.Debugf("Waiting on resource wait group for resource=%s", resource.String())
+		ctx.resourceWaitGroup.Wait()
+		ctx.logger.Debugf("Done waiting on resource wait group for resource=%s", resource.String())
+	}
+
+	// TODO timeout?
+	ctx.logger.Debug("Waiting on global wait group")
+	waitErrs := ctx.globalWaitGroup.Wait()
+	ctx.logger.Debug("Done waiting on global wait group")
+
+	for _, err := range waitErrs {
+		// TODO not ideal to be adding these to Ark-level errors
+		// rather than a specific namespace, but don't have a way
+		// to track the namespace right now.
+		errs.Ark = append(errs.Ark, err.Error())
 	}
 
 	return warnings, errs
@@ -522,9 +600,9 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 
 	var (
 		resourceClient    client.Dynamic
-		waiter            *resourceWaiter
 		groupResource     = schema.ParseGroupResource(resource)
 		applicableActions []resolvedAction
+		resourceWatch     watch.Interface
 	)
 
 	// pre-filter the actions based on namespace & resource includes/excludes since
@@ -554,7 +632,21 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 		}
 
 		if hasControllerOwner(obj.GetOwnerReferences()) {
-			ctx.infof("%s/%s has a controller owner - skipping", obj.GetNamespace(), obj.GetName())
+			// non-pods with controller owners shouldn't be restored; pods with controller
+			// owners should only be restored if they have restic snapshots to restore
+			if groupResource != kuberesource.Pods || !restic.PodHasSnapshotAnnotation(obj) {
+				ctx.infof("%s has a controller owner - skipping", kube.NamespaceAndName(obj))
+				continue
+			}
+		}
+
+		complete, err := isCompleted(obj, groupResource)
+		if err != nil {
+			addToResult(&errs, namespace, fmt.Errorf("error checking completion %q: %v", fullPath, err))
+			continue
+		}
+		if complete {
+			ctx.infof("%s is complete - skipping", kube.NamespaceAndName(obj))
 			continue
 		}
 
@@ -576,25 +668,68 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 			}
 		}
 
-		if groupResource.Group == "" && groupResource.Resource == "persistentvolumes" {
+		name := obj.GetName()
+
+		// TODO: move to restore item action if/when we add a ShouldRestore() method to the interface
+		if groupResource == kuberesource.Pods && obj.GetAnnotations()[v1.MirrorPodAnnotationKey] != "" {
+			ctx.infof("Not restoring pod because it's a mirror pod")
+			continue
+		}
+
+		if groupResource == kuberesource.PersistentVolumes {
+			_, found := ctx.backup.Status.VolumeBackups[name]
+			reclaimPolicy, err := collections.GetString(obj.Object, "spec.persistentVolumeReclaimPolicy")
+			if err == nil && !found && reclaimPolicy == "Delete" {
+				ctx.infof("Not restoring PV because it doesn't have a snapshot and its reclaim policy is Delete.")
+
+				ctx.pvsToProvision.Insert(name)
+
+				continue
+			}
+
 			// restore the PV from snapshot (if applicable)
-			updatedObj, err := ctx.executePVAction(obj)
+			updatedObj, err := ctx.pvRestorer.executePVAction(obj)
 			if err != nil {
 				addToResult(&errs, namespace, fmt.Errorf("error executing PVAction for %s: %v", fullPath, err))
 				continue
 			}
 			obj = updatedObj
 
-			// wait for the PV to be ready
-			if ctx.waitForPVs {
-				pvWatch, err := resourceClient.Watch(metav1.ListOptions{})
+			if resourceWatch == nil {
+				resourceWatch, err = resourceClient.Watch(metav1.ListOptions{})
 				if err != nil {
 					addToResult(&errs, namespace, fmt.Errorf("error watching for namespace %q, resource %q: %v", namespace, &groupResource, err))
 					return warnings, errs
 				}
+				ctx.resourceWatches = append(ctx.resourceWatches, resourceWatch)
+				ctx.resourceWaitGroup.Add(1)
+				go func() {
+					defer ctx.resourceWaitGroup.Done()
 
-				waiter = newResourceWaiter(pvWatch, isPVReady)
-				defer waiter.Stop()
+					if _, err := waitForReady(resourceWatch.ResultChan(), name, isPVReady, time.Minute, ctx.logger); err != nil {
+						ctx.logger.Warnf("Timeout reached waiting for persistent volume %s to become ready", name)
+						addArkError(&warnings, fmt.Errorf("timeout reached waiting for persistent volume %s to become ready", name))
+					}
+				}()
+			}
+		}
+
+		if groupResource == kuberesource.PersistentVolumeClaims {
+			spec, err := collections.GetMap(obj.UnstructuredContent(), "spec")
+			if err != nil {
+				addToResult(&errs, namespace, err)
+				continue
+			}
+
+			if volumeName, exists := spec["volumeName"]; exists && ctx.pvsToProvision.Has(volumeName.(string)) {
+				ctx.infof("Resetting PersistentVolumeClaim %s/%s for dynamic provisioning because its PV %v has a reclaim policy of Delete", namespace, name, volumeName)
+
+				delete(spec, "volumeName")
+
+				annotations := obj.GetAnnotations()
+				delete(annotations, "pv.kubernetes.io/bind-completed")
+				delete(annotations, "pv.kubernetes.io/bound-by-controller")
+				obj.SetAnnotations(annotations)
 			}
 		}
 
@@ -628,44 +763,162 @@ func (ctx *context) restoreResource(resource, namespace, resourcePath string) (a
 		}
 
 		// clear out non-core metadata fields & status
-		if obj, err = resetMetadataAndStatus(obj, true); err != nil {
+		if obj, err = resetMetadataAndStatus(obj); err != nil {
 			addToResult(&errs, namespace, err)
 			continue
 		}
 
 		// necessary because we may have remapped the namespace
-		obj.SetNamespace(namespace)
+		// if the namespace is blank, don't create the key
+		if namespace != "" {
+			obj.SetNamespace(namespace)
+		}
 
 		// add an ark-restore label to each resource for easy ID
 		addLabel(obj, api.RestoreLabelKey, ctx.restore.Name)
 
-		ctx.infof("Restoring %s: %v", obj.GroupVersionKind().Kind, obj.GetName())
-		_, err = resourceClient.Create(obj)
-		if apierrors.IsAlreadyExists(err) {
-			addToResult(&warnings, namespace, err)
+		ctx.infof("Restoring %s: %v", obj.GroupVersionKind().Kind, name)
+		createdObj, restoreErr := resourceClient.Create(obj)
+		if apierrors.IsAlreadyExists(restoreErr) {
+			fromCluster, err := resourceClient.Get(name, metav1.GetOptions{})
+			if err != nil {
+				ctx.infof("Error retrieving cluster version of %s: %v", kube.NamespaceAndName(obj), err)
+				addToResult(&warnings, namespace, err)
+				continue
+			}
+			// Remove insubstantial metadata
+			fromCluster, err = resetMetadataAndStatus(fromCluster)
+			if err != nil {
+				ctx.infof("Error trying to reset metadata for %s: %v", kube.NamespaceAndName(obj), err)
+				addToResult(&warnings, namespace, err)
+				continue
+			}
+
+			// We know the cluster won't have the restore name label, so
+			// copy it over from the backup
+			restoreName := obj.GetLabels()[api.RestoreLabelKey]
+			addLabel(fromCluster, api.RestoreLabelKey, restoreName)
+
+			if !equality.Semantic.DeepEqual(fromCluster, obj) {
+				switch groupResource {
+				case kuberesource.ServiceAccounts:
+					desired, err := mergeServiceAccounts(fromCluster, obj)
+					if err != nil {
+						ctx.infof("error merging secrets for ServiceAccount %s: %v", kube.NamespaceAndName(obj), err)
+						addToResult(&warnings, namespace, err)
+						continue
+					}
+
+					patchBytes, err := generatePatch(fromCluster, desired)
+					if err != nil {
+						ctx.infof("error generating patch for ServiceAccount %s: %v", kube.NamespaceAndName(obj), err)
+						addToResult(&warnings, namespace, err)
+						continue
+					}
+
+					if patchBytes == nil {
+						// In-cluster and desired state are the same, so move on to the next item
+						continue
+					}
+
+					_, err = resourceClient.Patch(name, patchBytes)
+					if err != nil {
+						addToResult(&warnings, namespace, err)
+					} else {
+						ctx.infof("ServiceAccount %s successfully updated", kube.NamespaceAndName(obj))
+					}
+				default:
+					e := errors.Errorf("not restored: %s and is different from backed up version.", restoreErr)
+					addToResult(&warnings, namespace, e)
+				}
+			}
 			continue
 		}
-		if err != nil {
-			ctx.infof("error restoring %s: %v", obj.GetName(), err)
-			addToResult(&errs, namespace, fmt.Errorf("error restoring %s: %v", fullPath, err))
+		// Error was something other than an AlreadyExists
+		if restoreErr != nil {
+			ctx.infof("error restoring %s: %v", name, err)
+			addToResult(&errs, namespace, fmt.Errorf("error restoring %s: %v", fullPath, restoreErr))
 			continue
 		}
 
-		if waiter != nil {
-			waiter.RegisterItem(obj.GetName())
-		}
-	}
+		if groupResource == kuberesource.Pods && len(restic.GetPodSnapshotAnnotations(obj)) > 0 {
+			if ctx.resticRestorer == nil {
+				ctx.logger.Warn("No restic restorer, not restoring pod's volumes")
+			} else {
+				ctx.globalWaitGroup.GoErrorSlice(func() []error {
+					pod := new(v1.Pod)
+					if err := runtime.DefaultUnstructuredConverter.FromUnstructured(createdObj.UnstructuredContent(), &pod); err != nil {
+						ctx.logger.WithError(err).Error("error converting unstructured pod")
+						return []error{err}
+					}
 
-	if waiter != nil {
-		if err := waiter.Wait(); err != nil {
-			addArkError(&errs, fmt.Errorf("error waiting for all %v resources to be created in namespace %s: %v", &groupResource, namespace, err))
+					if errs := ctx.resticRestorer.RestorePodVolumes(ctx.restore, pod, ctx.logger); errs != nil {
+						ctx.logger.WithError(kubeerrs.NewAggregate(errs)).Error("unable to successfully complete restic restores of pod's volumes")
+						return errs
+					}
+
+					return nil
+				})
+			}
 		}
 	}
 
 	return warnings, errs
 }
 
-func (ctx *context) executePVAction(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+func waitForReady(
+	watchChan <-chan watch.Event,
+	name string,
+	ready func(runtime.Unstructured) bool,
+	timeout time.Duration,
+	log logrus.FieldLogger,
+) (*unstructured.Unstructured, error) {
+	var timeoutChan <-chan time.Time
+	if timeout != 0 {
+		timeoutChan = time.After(timeout)
+	} else {
+		timeoutChan = make(chan time.Time)
+	}
+
+	for {
+		select {
+		case event := <-watchChan:
+			if event.Type != watch.Added && event.Type != watch.Modified {
+				continue
+			}
+
+			obj, ok := event.Object.(*unstructured.Unstructured)
+			switch {
+			case !ok:
+				log.Errorf("Unexpected type %T", event.Object)
+				continue
+			case obj.GetName() != name:
+				continue
+			case !ready(obj):
+				log.Debugf("Item %s is not ready yet", name)
+				continue
+			default:
+				return obj, nil
+			}
+		case <-timeoutChan:
+			return nil, errors.New("failed to observe item becoming ready within the timeout")
+		}
+	}
+}
+
+type PVRestorer interface {
+	executePVAction(obj *unstructured.Unstructured) (*unstructured.Unstructured, error)
+}
+
+type pvRestorer struct {
+	logger          logrus.FieldLogger
+	snapshotVolumes *bool
+	restorePVs      *bool
+	volumeBackups   map[string]*api.VolumeBackupInfo
+	snapshotService cloudprovider.SnapshotService
+}
+
+func (r *pvRestorer) executePVAction(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	pvName := obj.GetName()
 	if pvName == "" {
 		return nil, errors.New("PersistentVolume is missing its name")
@@ -676,49 +929,47 @@ func (ctx *context) executePVAction(obj *unstructured.Unstructured) (*unstructur
 		return nil, err
 	}
 
-	metadata, err := collections.GetMap(obj.UnstructuredContent(), "metadata")
-	if err != nil {
-		return nil, err
-	}
-
-	// We need to remove annotations from PVs since they potentially contain
-	// information about dynamic provisioners which will confuse the controllers.
-	delete(metadata, "annotations")
-
 	delete(spec, "claimRef")
 	delete(spec, "storageClassName")
 
-	if boolptr.IsSetToFalse(ctx.backup.Spec.SnapshotVolumes) {
+	if boolptr.IsSetToFalse(r.snapshotVolumes) {
 		// The backup had snapshots disabled, so we can return early
 		return obj, nil
 	}
 
-	if boolptr.IsSetToFalse(ctx.restore.Spec.RestorePVs) {
+	if boolptr.IsSetToFalse(r.restorePVs) {
 		// The restore has pv restores disabled, so we can return early
 		return obj, nil
 	}
 
 	// If we can't find a snapshot record for this particular PV, it most likely wasn't a PV that Ark
 	// could snapshot, so return early instead of trying to restore from a snapshot.
-	backupInfo, found := ctx.backup.Status.VolumeBackups[pvName]
+	backupInfo, found := r.volumeBackups[pvName]
 	if !found {
 		return obj, nil
 	}
 
 	// Past this point, we expect to be doing a restore
 
-	if ctx.snapshotService == nil {
+	if r.snapshotService == nil {
 		return nil, errors.New("you must configure a persistentVolumeProvider to restore PersistentVolumes from snapshots")
 	}
 
-	ctx.infof("restoring PersistentVolume %s from SnapshotID %s", pvName, backupInfo.SnapshotID)
-	volumeID, err := ctx.snapshotService.CreateVolumeFromSnapshot(backupInfo.SnapshotID, backupInfo.Type, backupInfo.AvailabilityZone, backupInfo.Iops)
+	log := r.logger.WithFields(
+		logrus.Fields{
+			"persistentVolume": pvName,
+			"snapshot":         backupInfo.SnapshotID,
+		},
+	)
+
+	log.Info("restoring persistent volume from snapshot")
+	volumeID, err := r.snapshotService.CreateVolumeFromSnapshot(backupInfo.SnapshotID, backupInfo.Type, backupInfo.AvailabilityZone, backupInfo.Iops)
 	if err != nil {
 		return nil, err
 	}
-	ctx.infof("successfully restored PersistentVolume %s from snapshot", pvName)
+	log.Info("successfully restored persistent volume from snapshot")
 
-	updated1, err := ctx.snapshotService.SetVolumeID(obj, volumeID)
+	updated1, err := r.snapshotService.SetVolumeID(obj, volumeID)
 	if err != nil {
 		return nil, err
 	}
@@ -740,22 +991,21 @@ func isPVReady(obj runtime.Unstructured) bool {
 	return phase == string(v1.VolumeAvailable)
 }
 
-func resetMetadataAndStatus(obj *unstructured.Unstructured, keepAnnotations bool) (*unstructured.Unstructured, error) {
+func resetMetadataAndStatus(obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	metadata, err := collections.GetMap(obj.UnstructuredContent(), "metadata")
 	if err != nil {
 		return nil, err
 	}
 
 	for k := range metadata {
-		if k == "name" || k == "namespace" || k == "labels" || (k == "annotations" && keepAnnotations) {
-			continue
+		switch k {
+		case "name", "namespace", "labels", "annotations":
+		default:
+			delete(metadata, k)
 		}
-
-		delete(metadata, k)
 	}
 
-	// this should never be backed up anyway, but remove it just
-	// in case.
+	// Never restore status
 	delete(obj.UnstructuredContent(), "status")
 
 	return obj, nil
@@ -784,6 +1034,32 @@ func hasControllerOwner(refs []metav1.OwnerReference) bool {
 		}
 	}
 	return false
+}
+
+// isCompleted returns whether or not an object is considered completed.
+// Used to identify whether or not an object should be restored. Only Jobs or Pods are considered
+func isCompleted(obj *unstructured.Unstructured, groupResource schema.GroupResource) (bool, error) {
+	switch groupResource {
+	case kuberesource.Pods:
+		phase, _, err := unstructured.NestedString(obj.UnstructuredContent(), "status", "phase")
+		if err != nil {
+			return false, errors.WithStack(err)
+		}
+		if phase == string(v1.PodFailed) || phase == string(v1.PodSucceeded) {
+			return true, nil
+		}
+
+	case kuberesource.Jobs:
+		ct, found, err := unstructured.NestedString(obj.UnstructuredContent(), "status", "completionTime")
+		if err != nil {
+			return false, errors.WithStack(err)
+		}
+		if found && ct != "" {
+			return true, nil
+		}
+	}
+	// Assume any other resource isn't complete and can be restored
+	return false, nil
 }
 
 // unmarshal reads the specified file, unmarshals the JSON contained within it

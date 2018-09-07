@@ -21,14 +21,32 @@
 #  version = "2.4.0"
 
 
+[prune]
+  unused-packages = true
+  non-go = true
+  go-tests = true
+
 [[constraint]]
   branch = "master"
   name = "github.com/hashicorp/go-plugin"
 
 [[constraint]]
   name = "github.com/heptio/ark"
-  version = "0.6.0"
+  version = "~0.9.4"
 
 [[constraint]]
   name = "github.com/sirupsen/logrus"
   version = "1.0.3"
+
+# Match Ark dependency versions
+[[constraint]]
+  name = "k8s.io/apimachinery"
+  version = "kubernetes-1.10.0"
+
+[[override]]
+  name = "github.com/spf13/cobra"
+  revision = "cb731b898346822cc0c225c28550a8a29d93c732"
+
+[[override]]
+  name = "github.com/spf13/pflag"
+  version = "1.0.0" 

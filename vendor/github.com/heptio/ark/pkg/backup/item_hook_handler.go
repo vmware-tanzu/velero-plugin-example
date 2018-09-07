@@ -18,17 +18,29 @@ package backup
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
-	api "github.com/heptio/ark/pkg/apis/ark/v1"
-	"github.com/heptio/ark/pkg/util/collections"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	api "github.com/heptio/ark/pkg/apis/ark/v1"
+	"github.com/heptio/ark/pkg/kuberesource"
+	"github.com/heptio/ark/pkg/podexec"
+	"github.com/heptio/ark/pkg/util/collections"
+)
+
+type hookPhase string
+
+const (
+	hookPhasePre  hookPhase = "pre"
+	hookPhasePost hookPhase = "post"
 )
 
 // itemHookHandler invokes hooks for an item.
@@ -37,22 +49,29 @@ type itemHookHandler interface {
 	// to specify a hook, that is executed. Otherwise, this looks at the backup context's Backup to
 	// determine if there are any hooks relevant to the item, taking into account the hook spec's
 	// namespaces, resources, and label selector.
-	handleHooks(log *logrus.Entry, groupResource schema.GroupResource, obj runtime.Unstructured, resourceHooks []resourceHook) error
+	handleHooks(
+		log logrus.FieldLogger,
+		groupResource schema.GroupResource,
+		obj runtime.Unstructured,
+		resourceHooks []resourceHook,
+		phase hookPhase,
+	) error
 }
 
 // defaultItemHookHandler is the default itemHookHandler.
 type defaultItemHookHandler struct {
-	podCommandExecutor podCommandExecutor
+	podCommandExecutor podexec.PodCommandExecutor
 }
 
 func (h *defaultItemHookHandler) handleHooks(
-	log *logrus.Entry,
+	log logrus.FieldLogger,
 	groupResource schema.GroupResource,
 	obj runtime.Unstructured,
 	resourceHooks []resourceHook,
+	phase hookPhase,
 ) error {
 	// We only support hooks on pods right now
-	if groupResource != podsGroupResource {
+	if groupResource != kuberesource.Pods {
 		return nil
 	}
 
@@ -65,14 +84,20 @@ func (h *defaultItemHookHandler) handleHooks(
 	name := metadata.GetName()
 
 	// If the pod has the hook specified via annotations, that takes priority.
-	if hookFromAnnotations := getPodExecHookFromAnnotations(metadata.GetAnnotations()); hookFromAnnotations != nil {
+	hookFromAnnotations := getPodExecHookFromAnnotations(metadata.GetAnnotations(), phase)
+	if phase == hookPhasePre && hookFromAnnotations == nil {
+		// See if the pod has the legacy hook annotation keys (i.e. without a phase specified)
+		hookFromAnnotations = getPodExecHookFromAnnotations(metadata.GetAnnotations(), "")
+	}
+	if hookFromAnnotations != nil {
 		hookLog := log.WithFields(
 			logrus.Fields{
 				"hookSource": "annotation",
 				"hookType":   "exec",
+				"hookPhase":  phase,
 			},
 		)
-		if err := h.podCommandExecutor.executePodCommand(hookLog, obj.UnstructuredContent(), namespace, name, "<from-annotation>", hookFromAnnotations); err != nil {
+		if err := h.podCommandExecutor.ExecutePodCommand(hookLog, obj.UnstructuredContent(), namespace, name, "<from-annotation>", hookFromAnnotations); err != nil {
 			hookLog.WithError(err).Error("Error executing hook")
 			if hookFromAnnotations.OnError == api.HookErrorModeFail {
 				return err
@@ -89,16 +114,23 @@ func (h *defaultItemHookHandler) handleHooks(
 			continue
 		}
 
-		for _, hook := range resourceHook.hooks {
-			if groupResource == podsGroupResource {
+		var hooks []api.BackupResourceHook
+		if phase == hookPhasePre {
+			hooks = resourceHook.pre
+		} else {
+			hooks = resourceHook.post
+		}
+		for _, hook := range hooks {
+			if groupResource == kuberesource.Pods {
 				if hook.Exec != nil {
 					hookLog := log.WithFields(
 						logrus.Fields{
 							"hookSource": "backupSpec",
 							"hookType":   "exec",
+							"hookPhase":  phase,
 						},
 					)
-					err := h.podCommandExecutor.executePodCommand(hookLog, obj.UnstructuredContent(), namespace, name, resourceHook.name, hook.Exec)
+					err := h.podCommandExecutor.ExecutePodCommand(hookLog, obj.UnstructuredContent(), namespace, name, resourceHook.name, hook.Exec)
 					if err != nil {
 						hookLog.WithError(err).Error("Error executing hook")
 						if hook.Exec.OnError == api.HookErrorModeFail {
@@ -118,17 +150,24 @@ const (
 	podBackupHookCommandAnnotationKey   = "hook.backup.ark.heptio.com/command"
 	podBackupHookOnErrorAnnotationKey   = "hook.backup.ark.heptio.com/on-error"
 	podBackupHookTimeoutAnnotationKey   = "hook.backup.ark.heptio.com/timeout"
-	defaultHookOnError                  = api.HookErrorModeFail
-	defaultHookTimeout                  = 30 * time.Second
 )
+
+func phasedKey(phase hookPhase, key string) string {
+	if phase != "" {
+		return fmt.Sprintf("%v.%v", phase, key)
+	}
+	return string(key)
+}
+
+func getHookAnnotation(annotations map[string]string, key string, phase hookPhase) string {
+	return annotations[phasedKey(phase, key)]
+}
 
 // getPodExecHookFromAnnotations returns an ExecHook based on the annotations, as long as the
 // 'command' annotation is present. If it is absent, this returns nil.
-func getPodExecHookFromAnnotations(annotations map[string]string) *api.ExecHook {
-	container := annotations[podBackupHookContainerAnnotationKey]
-
-	commandValue, ok := annotations[podBackupHookCommandAnnotationKey]
-	if !ok {
+func getPodExecHookFromAnnotations(annotations map[string]string, phase hookPhase) *api.ExecHook {
+	commandValue := getHookAnnotation(annotations, podBackupHookCommandAnnotationKey, phase)
+	if commandValue == "" {
 		return nil
 	}
 	var command []string
@@ -141,13 +180,15 @@ func getPodExecHookFromAnnotations(annotations map[string]string) *api.ExecHook 
 		command = append(command, commandValue)
 	}
 
-	onError := api.HookErrorMode(annotations[podBackupHookOnErrorAnnotationKey])
+	container := getHookAnnotation(annotations, podBackupHookContainerAnnotationKey, phase)
+
+	onError := api.HookErrorMode(getHookAnnotation(annotations, podBackupHookOnErrorAnnotationKey, phase))
 	if onError != api.HookErrorModeContinue && onError != api.HookErrorModeFail {
 		onError = ""
 	}
 
 	var timeout time.Duration
-	timeoutString := annotations[podBackupHookTimeoutAnnotationKey]
+	timeoutString := getHookAnnotation(annotations, podBackupHookTimeoutAnnotationKey, phase)
 	if timeoutString != "" {
 		if temp, err := time.ParseDuration(timeoutString); err == nil {
 			timeout = temp
@@ -169,7 +210,8 @@ type resourceHook struct {
 	namespaces    *collections.IncludesExcludes
 	resources     *collections.IncludesExcludes
 	labelSelector labels.Selector
-	hooks         []api.BackupResourceHook
+	pre           []api.BackupResourceHook
+	post          []api.BackupResourceHook
 }
 
 func (r resourceHook) applicableTo(groupResource schema.GroupResource, namespace string, labels labels.Set) bool {
