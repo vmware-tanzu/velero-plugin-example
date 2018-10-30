@@ -40,14 +40,13 @@ import (
 	"github.com/heptio/ark/pkg/restic"
 	"github.com/heptio/ark/pkg/util/collections"
 	kubeutil "github.com/heptio/ark/pkg/util/kube"
-	"github.com/heptio/ark/pkg/util/logging"
 )
 
 // Backupper performs backups.
 type Backupper interface {
 	// Backup takes a backup using the specification in the api.Backup and writes backup and log data
 	// to the given writers.
-	Backup(backup *api.Backup, backupFile, logFile io.Writer, actions []ItemAction) error
+	Backup(logger logrus.FieldLogger, backup *api.Backup, backupFile io.Writer, actions []ItemAction) error
 }
 
 // kubernetesBackupper implements Backupper.
@@ -56,7 +55,7 @@ type kubernetesBackupper struct {
 	discoveryHelper        discovery.Helper
 	podCommandExecutor     podexec.PodCommandExecutor
 	groupBackupperFactory  groupBackupperFactory
-	snapshotService        cloudprovider.SnapshotService
+	blockStore             cloudprovider.BlockStore
 	resticBackupperFactory restic.BackupperFactory
 	resticTimeout          time.Duration
 }
@@ -94,7 +93,7 @@ func NewKubernetesBackupper(
 	discoveryHelper discovery.Helper,
 	dynamicFactory client.DynamicFactory,
 	podCommandExecutor podexec.PodCommandExecutor,
-	snapshotService cloudprovider.SnapshotService,
+	blockStore cloudprovider.BlockStore,
 	resticBackupperFactory restic.BackupperFactory,
 	resticTimeout time.Duration,
 ) (Backupper, error) {
@@ -103,7 +102,7 @@ func NewKubernetesBackupper(
 		dynamicFactory:         dynamicFactory,
 		podCommandExecutor:     podCommandExecutor,
 		groupBackupperFactory:  &defaultGroupBackupperFactory{},
-		snapshotService:        snapshotService,
+		blockStore:             blockStore,
 		resticBackupperFactory: resticBackupperFactory,
 		resticTimeout:          resticTimeout,
 	}, nil
@@ -212,20 +211,13 @@ func getResourceHook(hookSpec api.BackupResourceHookSpec, discoveryHelper discov
 
 // Backup backs up the items specified in the Backup, placing them in a gzip-compressed tar file
 // written to backupFile. The finalized api.Backup is written to metadata.
-func (kb *kubernetesBackupper) Backup(backup *api.Backup, backupFile, logFile io.Writer, actions []ItemAction) error {
+func (kb *kubernetesBackupper) Backup(logger logrus.FieldLogger, backup *api.Backup, backupFile io.Writer, actions []ItemAction) error {
 	gzippedData := gzip.NewWriter(backupFile)
 	defer gzippedData.Close()
 
 	tw := tar.NewWriter(gzippedData)
 	defer tw.Close()
 
-	gzippedLog := gzip.NewWriter(logFile)
-	defer gzippedLog.Close()
-
-	logger := logrus.New()
-	logger.Out = gzippedLog
-	logger.Hooks.Add(&logging.ErrorLocationHook{})
-	logger.Hooks.Add(&logging.LogLocationHook{})
 	log := logger.WithField("backup", kubeutil.NamespaceAndName(backup))
 	log.Info("Starting backup")
 
@@ -284,7 +276,7 @@ func (kb *kubernetesBackupper) Backup(backup *api.Backup, backupFile, logFile io
 		kb.podCommandExecutor,
 		tw,
 		resourceHooks,
-		kb.snapshotService,
+		kb.blockStore,
 		resticBackupper,
 		newPVCSnapshotTracker(),
 	)

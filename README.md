@@ -6,7 +6,7 @@
 
 This repository contains example plugins for Heptio Ark.
 
-# Kinds of Plugins
+## Kinds of Plugins
 
 Ark currently supports the following kinds of plugins:
 
@@ -15,12 +15,12 @@ Ark currently supports the following kinds of plugins:
 - **Backup Item Action** - performs arbitrary logic on individual items prior to storing them in the backup file.
 - **Restore Item Action** - performs arbitrary logic on individual items prior to restoring them in the Kubernetes cluster.
 
-# Building the plugins
+## Building the plugins
 
 To build the plugins, run
 
 ```bash
-$ make container
+$ make
 ```
 
 To build the image, run
@@ -36,22 +36,51 @@ different name, run
 $ make container IMAGE=your-repo/your-name:here
 ```
 
-# Deploying the plugins
+## Deploying the plugins
 
 To deploy your plugin image to an Ark server:
 
 1. Make sure your image is pushed to a registry that is accessible to your cluster's nodes.
 2. Run `ark plugin add <image>`, e.g. `ark plugin add gcr.io/heptio-images/ark-plugin-example`
 
-# Using the plugins
+## Using the plugins
+
+***Note***: As of v0.10.0, the Custom Resource Definitions used to define backup and block storage providers have changed. See [the previous docs][3] for using plugins with versions v0.6-v0.9.x.
 
 When the plugin is deployed, it is only made available to use. To make the plugin effective, you must modify your configuration:
-    
-1. Run `kubectl edit config <config-name> -n <ark-namespace>` e.g. `kubectl edit config default -n heptio-ark`
-2. Change the name of section: `backupStorageProvider` for **Object Store** plugin, `persistentVolumeProvider` for **Block Store** plugin
-3. Save and quit, the plugin will be used for the next `backup/restore`
 
-# Creating your own plugin project
+Backup storage:
+
+1. Run `kubectl edit backupstoragelocation <location-name> -n <ark-namespace>` e.g. `kubectl edit backupstoragelocation default -n heptio-ark` OR `ark backup-location create <location-name> --provider <provider-name>`
+2. Change the value of `spec.provider` to enable an **Object Store** plugin
+3. Save and quit. The plugin will be used for the next `backup/restore`
+
+Volume snapshot storage:
+
+1. Run `kubectl edit volumesnapshotlocation <location-name> -n <ark-namespace>` e.g. `kubectl edit volumesnapshotlocation default -n heptio-ark` OR `ark snapshot-location create <location-name> --provider <provider-name>`
+2. Change the value of `spec.provider` to enable a **Block Store** plugin
+3. Save and quit. The plugin will be used for the next `backup/restore`
+
+## Examples
+
+To run with the example plugins, do the following:
+
+1. Run `ark backup-location create  default --provider file` Optional: `--config bucket:<your-bucket>,prefix:<your-prefix>` to configure a bucket and/or prefix directories.
+2. Run `ark snapshot-location create example-default --provider example-blockstore`
+3. Run `kubectl edit deployment/ark -n <ark-namespace>`
+4. Change the value of `spec.template.spec.args` to look like the following:
+
+```yaml
+      - args:
+        - server
+        - --default-volume-snapshot-locations
+        - example-blockstore:example-default
+```
+
+5. Run `kubectl create -f ark-blockstore-example/with-pv.yaml` to apply a sample nginx application that uses the example block store plugin. ***Note***: This example works best on a virtual machine, as it uses the host's `/tmp` directory for data storage.
+6. Save and quit. The plugins will be used for the next `backup/restore`
+
+## Creating your own plugin project
 
 1. Create a new directory in your `$GOPATH`, e.g. `$GOPATH/src/github.com/someuser/ark-plugins`
 2. Copy everything from this project into your new project
@@ -78,21 +107,13 @@ If you need to pull in additional dependencies to your vendor directory, just ru
 $ dep ensure
 ```
 
-# Combining multiple plugins in one file
+## Combining multiple plugins in one file
 
-Note that currently, Ark uses the [name of the plugin binary][3] to determine the type and unique name
-of the plugin. This means that Ark will only recognize one plugin per binary file.
+As of v0.10.0, Ark can host multiple plugins inside of a single, resumable process. The plugins can be
+of any supported type. See `ark-examples/main.go`
 
-If you want to implement more than one plugin in a single binary, you can create hard or symbolic
-links to your binary and add them to the image, changing the name of each link to match the name of
-the desired plugin.
-
-For example, if your binary is `ark-awesome-plugins`, you could create hard/symoblic links
-`ark-objectstore-mycloud` and `ark-blockstore-mycloud` that both point to `ark-awesome-plugins`.
-
-In the future, we do hope to make it easier to register a multi-plugin binary with Ark - stay tuned!
 
 [0]: https://github.com/heptio
 [1]: https://travis-ci.org/heptio/ark-plugin-example.svg?branch=master
 [2]: https://travis-ci.org/heptio/ark-plugin-example
-[3]: https://github.com/heptio/ark/blob/master/docs/plugins.md#plugin-naming
+[3]: https://github.com/heptio/ark-plugin-example/blob/v0.9.x/README.md#using-the-plugins
