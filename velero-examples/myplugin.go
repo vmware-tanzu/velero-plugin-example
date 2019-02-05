@@ -22,8 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/heptio/ark/pkg/apis/ark/v1"
-	"github.com/heptio/ark/pkg/backup"
+	"github.com/heptio/velero/pkg/apis/velero/v1"
+	"github.com/heptio/velero/pkg/backup"
 )
 
 // BackupPlugin is a backup item action plugin for Heptio Ark.
@@ -50,7 +50,7 @@ func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (ru
 		annotations = make(map[string]string)
 	}
 
-	annotations["ark.heptio.com/my-plugin"] = "1"
+	annotations["velero.io/my-plugin"] = "1"
 
 	metadata.SetAnnotations(annotations)
 

@@ -38,7 +38,7 @@
   name = "github.com/sirupsen/logrus"
   version = "1.0.3"
 
-# Match Ark dependency versions
+# Match Velero dependency versions
 [[constraint]]
   name = "k8s.io/apimachinery"
   version = "kubernetes-1.11.0"

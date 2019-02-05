@@ -17,14 +17,14 @@ limitations under the License.
 package main
 
 import (
-	"github.com/heptio/ark/pkg/apis/ark/v1"
-	"github.com/heptio/ark/pkg/restore"
+	"github.com/heptio/velero/pkg/apis/velero/v1"
+	"github.com/heptio/velero/pkg/restore"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// MyRestorePlugin is a restore item action plugin for Heptio Ark
+// MyRestorePlugin is a restore item action plugin for Velero
 type MyRestorePlugin struct {
 	log logrus.FieldLogger
 }
@@ -47,7 +47,7 @@ func (p *MyRestorePlugin) Execute(item runtime.Unstructured, restore *v1.Restore
 		annotations = make(map[string]string)
 	}
 
-	annotations["ark.heptio.com/my-restore-plugin"] = "1"
+	annotations["velero.io/my-restore-plugin"] = "1"
 
 	metadata.SetAnnotations(annotations)
 

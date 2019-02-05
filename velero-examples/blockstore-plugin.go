@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"strconv"
 
-	"github.com/heptio/ark/pkg/cloudprovider"
-	"github.com/heptio/ark/pkg/util/collections"
+	"github.com/heptio/velero/pkg/util/collections"
+	"github.com/heptio/velero/pkg/cloudprovider"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/runtime"
 )

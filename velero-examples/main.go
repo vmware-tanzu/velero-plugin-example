@@ -17,12 +17,12 @@ limitations under the License.
 package main
 
 import (
-	arkplugin "github.com/heptio/ark/pkg/plugin"
+	veleroplugin "github.com/heptio/velero/pkg/plugin"
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	arkplugin.NewServer(arkplugin.NewLogger()).
+	veleroplugin.NewServer(veleroplugin.NewLogger()).
 		RegisterBackupItemAction("backup-plugin", newBackupPlugin).
 		RegisterObjectStore("file", newFileObjectStore).
 		RegisterRestoreItemAction("restore-plugin", newMyRestorePlugin).
