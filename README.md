@@ -1,7 +1,5 @@
 # Velero Example Plugins
 
-**Maintainers**: [Heptio][0]
-
 [![Build Status][1]][2]
 
 This repository contains example plugins for Velero.
@@ -113,7 +111,6 @@ As of v0.10.0, Velero can host multiple plugins inside of a single, resumable pr
 of any supported type. See `velero-examples/main.go`
 
 
-[0]: https://github.com/heptio
 [1]: https://travis-ci.org/heptio/velero-plugin-example.svg?branch=master
 [2]: https://travis-ci.org/heptio/velero-plugin-example
 [3]: https://github.com/heptio/velero-plugin-example/blob/v0.9.x/README.md#using-the-plugins
