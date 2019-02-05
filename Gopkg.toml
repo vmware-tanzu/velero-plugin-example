@@ -31,7 +31,7 @@
   name = "github.com/hashicorp/go-plugin"
 
 [[constraint]]
-  name = "github.com/heptio/ark"
+  name = "github.com/heptio/velero"
   branch = "master"
 
 [[constraint]]
