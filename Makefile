@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-BINS = $(wildcard ark-*)
+BINS = $(wildcard velero-*)
 
-REPO ?= github.com/heptio/ark-plugin-example
+REPO ?= github.com/heptio/velero-plugin-example
 
 BUILD_IMAGE ?= gcr.io/heptio-images/golang:1.9-alpine3.6
 
-IMAGE ?= gcr.io/heptio-images/ark-plugin-example
+IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 
 ARCH ?= amd64
 
