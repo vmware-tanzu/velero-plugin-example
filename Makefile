@@ -13,13 +13,12 @@
 # limitations under the License.
 
 # The binary to build (just the basename).
-# BIN ?= $(wildcard velero-*)
 BIN ?= $(wildcard velero-*)
 
 # This repo's root import path (under GOPATH).
 PKG := github.com/heptio/velero-plugin-example
 
-BUILD_IMAGE ?= gcr.io/heptio-images/golang:1.9-alpine3.6
+BUILD_IMAGE ?= gcr.io/golang:1.11-alpine3.8
 
 IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 
@@ -30,8 +29,6 @@ local : ARCH ?= $(shell go env GOOS)-$(shell go env GOARCH)
 ARCH ?= linux-amd64
 
 VERSION ?= master
-
-TAG_LATEST ?= false
 
 platform_temp = $(subst -, ,$(ARCH))
 GOOS = $(word 1, $(platform_temp))
@@ -107,5 +104,5 @@ ci:
 	CGO_ENABLED=0 go build -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) ./$(BIN)
 
 clean:
-	@echo "cleanning"
+	@echo "cleaning"
 	rm -rf .go _output
