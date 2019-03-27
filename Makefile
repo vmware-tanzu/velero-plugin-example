@@ -18,7 +18,7 @@ BIN ?= $(wildcard velero-*)
 # This repo's root import path (under GOPATH).
 PKG := github.com/heptio/velero-plugin-example
 
-BUILD_IMAGE ?= gcr.io/golang:1.11-alpine3.8
+BUILD_IMAGE ?= golang:1.11-alpine3.8
 
 IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 
@@ -27,8 +27,6 @@ IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 # if it wasn't specified by the caller.
 local : ARCH ?= $(shell go env GOOS)-$(shell go env GOARCH)
 ARCH ?= linux-amd64
-
-VERSION ?= master
 
 platform_temp = $(subst -, ,$(ARCH))
 GOOS = $(word 1, $(platform_temp))
@@ -48,7 +46,6 @@ build-%:
 local: build-dirs
 	GOOS=$(GOOS) \
 	GOARCH=$(GOARCH) \
-	VERSION=$(VERSION) \
 	PKG=$(PKG) \
 	BIN=$(BIN) \
 	OUTPUT_DIR=$$(pwd)/_output/bin/$(GOOS)/$(GOARCH) \
@@ -61,7 +58,6 @@ _output/bin/$(GOOS)/$(GOARCH)/$(BIN): build-dirs
 	$(MAKE) shell CMD="-c '\
 		GOOS=$(GOOS) \
 		GOARCH=$(GOARCH) \
-		VERSION=$(VERSION) \
 		PKG=$(PKG) \
 		BIN=$(BIN) \
 		OUTPUT_DIR=/output/$(GOOS)/$(GOARCH) \

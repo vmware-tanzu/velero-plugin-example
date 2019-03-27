@@ -34,10 +34,6 @@ if [ -z "${GOARCH}" ]; then
     echo "GOARCH must be set"
     exit 1
 fi
-if [ -z "${VERSION}" ]; then
-    echo "VERSION must be set"
-    exit 1
-fi
 
 export CGO_ENABLED=0
 
@@ -49,7 +45,6 @@ else
   GIT_TREE_STATE=dirty
 fi
 
-LDFLAGS="-X ${PKG}/pkg/buildinfo.Version=${VERSION}"
 LDFLAGS="${LDFLAGS} -X ${PKG}/pkg/buildinfo.GitSHA=${GIT_SHA}"
 LDFLAGS="${LDFLAGS} -X ${PKG}/pkg/buildinfo.GitTreeState=${GIT_TREE_STATE}"
 
