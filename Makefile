@@ -12,50 +12,87 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-BINS = $(wildcard velero-*)
+# The binary to build (just the basename).
+BIN ?= $(wildcard velero-*)
 
-REPO ?= github.com/heptio/velero-plugin-example
+# This repo's root import path (under GOPATH).
+PKG := github.com/heptio/velero-plugin-example
 
-BUILD_IMAGE ?= gcr.io/heptio-images/golang:1.9-alpine3.6
+BUILD_IMAGE ?= golang:1.11-alpine3.8
 
 IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 
-ARCH ?= amd64
+# Which architecture to build - see $(ALL_ARCH) for options.
+# if the 'local' rule is being run, detect the ARCH from 'go env'
+# if it wasn't specified by the caller.
+local : ARCH ?= $(shell go env GOOS)-$(shell go env GOARCH)
+ARCH ?= linux-amd64
 
-all: $(addprefix build-, $(BINS))
+platform_temp = $(subst -, ,$(ARCH))
+GOOS = $(word 1, $(platform_temp))
+GOARCH = $(word 2, $(platform_temp))
+
+all: $(addprefix build-, $(BIN))
 
 build-%:
 	$(MAKE) --no-print-directory BIN=$* build
 
-build: _output/$(BIN)
+local: build-dirs
+	GOOS=$(GOOS) \
+	GOARCH=$(GOARCH) \
+	PKG=$(PKG) \
+	BIN=$(BIN) \
+	OUTPUT_DIR=$$(pwd)/_output/bin/$(GOOS)/$(GOARCH) \
+	./hack/build.sh
 
-_output/$(BIN): $(BIN)/*.go
-	mkdir -p .go/src/$(REPO) .go/pkg .go/std/$(ARCH) _output
-	docker run \
-				 --rm \
-				 -u $$(id -u):$$(id -g) \
-				 -v $$(pwd)/.go/pkg:/go/pkg \
-				 -v $$(pwd)/.go/src:/go/src \
-				 -v $$(pwd)/.go/std:/go/std \
-				 -v $$(pwd):/go/src/$(REPO) \
-				 -v $$(pwd)/.go/std/$(ARCH):/usr/local/go/pkg/linux_$(ARCH)_static \
-				 -e CGO_ENABLED=0 \
-				 -w /go/src/$(REPO) \
-				 $(BUILD_IMAGE) \
-				 go build -installsuffix "static" -i -v -o _output/$(BIN) ./$(BIN)
+build: _output/bin/$(GOOS)/$(GOARCH)/$(BIN)
+
+_output/bin/$(GOOS)/$(GOARCH)/$(BIN): build-dirs
+	@echo "building: $@"
+	$(MAKE) shell CMD="-c '\
+		GOOS=$(GOOS) \
+		GOARCH=$(GOARCH) \
+		PKG=$(PKG) \
+		BIN=$(BIN) \
+		OUTPUT_DIR=/output/$(GOOS)/$(GOARCH) \
+		./hack/build.sh'"
+
+TTY := $(shell tty -s && echo "-t")
+
+shell: build-dirs 
+	@echo "running docker: $@"
+	@docker run \
+		-e GOFLAGS \
+		-i $(TTY) \
+		--rm \
+		-u $$(id -u):$$(id -g) \
+		-v $$(pwd)/.go/pkg:/go/pkg \
+		-v $$(pwd)/.go/src:/go/src \
+		-v $$(pwd)/.go/std:/go/std \
+		-v $$(pwd):/go/src/$(PKG) \
+		-v $$(pwd)/.go/std/$(GOOS)_$(GOARCH):/usr/local/go/pkg/$(GOOS)_$(GOARCH)_static \
+		-e CGO_ENABLED=0 \
+		-w /go/src/$(PKG) \
+		$(BUILD_IMAGE) \
+		go build -installsuffix "static" -i -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) ./$(BIN)
+
+build-dirs:
+	@mkdir -p _output/bin/$(GOOS)/$(GOARCH)
+	@mkdir -p .go/src/$(PKG) .go/pkg .go/bin .go/std/$(GOOS)/$(GOARCH) .go/go-build
 
 container: all
-	cp Dockerfile _output/Dockerfile
-	docker build -t $(IMAGE) -f _output/Dockerfile _output
+	cp Dockerfile _output/bin/$(GOOS)/$(GOARCH)/Dockerfile
+	docker build -t $(IMAGE) -f _output/bin/$(GOOS)/$(GOARCH)/Dockerfile _output/bin/$(GOOS)/$(GOARCH)
 
-all-ci: $(addprefix ci-, $(BINS))
+all-ci: $(addprefix ci-, $(BIN))
 
 ci-%:
 	$(MAKE) --no-print-directory BIN=$* ci
 
 ci:
 	mkdir -p _output
-	CGO_ENABLED=0 go build -v -o _output/$(BIN) ./$(BIN)
+	CGO_ENABLED=0 go build -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) ./$(BIN)
 
 clean:
+	@echo "cleaning"
 	rm -rf .go _output
