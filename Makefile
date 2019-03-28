@@ -32,11 +32,11 @@ platform_temp = $(subst -, ,$(ARCH))
 GOOS = $(word 1, $(platform_temp))
 GOARCH = $(word 2, $(platform_temp))
 
-# TODO(ncdc): support multiple image architectures once gcr.io supports manifest lists
-# Set default base image dynamically for each arch
-ifeq ($(GOARCH),amd64)
-		DOCKERFILE ?= Dockerfile-$(BIN).alpine
-endif
+# # TODO(ncdc): support multiple image architectures once gcr.io supports manifest lists
+# # Set default base image dynamically for each arch
+# ifeq ($(GOARCH),amd64)
+# 		DOCKERFILE ?= Dockerfile-$(BIN).alpine
+# endif
 
 all: $(addprefix build-, $(BIN))
 

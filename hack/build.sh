@@ -45,9 +45,6 @@ else
   GIT_TREE_STATE=dirty
 fi
 
-LDFLAGS="${LDFLAGS} -X ${PKG}/pkg/buildinfo.GitSHA=${GIT_SHA}"
-LDFLAGS="${LDFLAGS} -X ${PKG}/pkg/buildinfo.GitTreeState=${GIT_TREE_STATE}"
-
 if [[ -z "${OUTPUT_DIR:-}" ]]; then
   OUTPUT_DIR=.
 fi
@@ -59,5 +56,4 @@ fi
 go build \
     -o ${OUTPUT} \
     -installsuffix "static" \
-    -ldflags "${LDFLAGS}" \
     ${PKG}/${BIN}
