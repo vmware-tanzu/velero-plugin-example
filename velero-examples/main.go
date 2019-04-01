@@ -23,10 +23,10 @@ import (
 
 func main() {
 	veleroplugin.NewServer().
-		RegisterBackupItemAction("example-backup-plugin", newBackupPlugin).
-		RegisterObjectStore("example-object-store-plugin", newObjectStorePlugin).
-		RegisterRestoreItemAction("example-restore-plugin", newRestorePlugin).
-		RegisterVolumeSnapshotter("example-volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
+		RegisterBackupItemAction("example/backup-plugin", newBackupPlugin).
+		RegisterObjectStore("example/object-store-plugin", newObjectStorePlugin).
+		RegisterRestoreItemAction("example/restore-plugin", newRestorePlugin).
+		RegisterVolumeSnapshotter("example/volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
 		Serve()
 }
 
