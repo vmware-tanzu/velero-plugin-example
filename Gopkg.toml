@@ -26,8 +26,8 @@
 
 
 [[constraint]]
-  branch = "master"
   name = "github.com/heptio/velero"
+  branch = "master"
 
 [[constraint]]
   name = "github.com/pkg/errors"
