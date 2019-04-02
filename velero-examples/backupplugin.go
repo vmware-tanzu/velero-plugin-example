@@ -1,5 +1,5 @@
 /*
-Copyright 2017 the Heptio Ark contributors.
+Copyright 2017, 2019 the Velero contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,23 +22,26 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/heptio/velero/pkg/apis/velero/v1"
-	"github.com/heptio/velero/pkg/backup"
+	v1 "github.com/heptio/velero/pkg/apis/velero/v1"
+	"github.com/heptio/velero/pkg/plugin/velero"
 )
 
-// BackupPlugin is a backup item action plugin for Heptio Ark.
+// BackupPlugin is a backup item action plugin for Velero.
 type BackupPlugin struct {
 	log logrus.FieldLogger
 }
 
-// AppliesTo returns a backup.ResourceSelector that applies to everything.
-func (p *BackupPlugin) AppliesTo() (backup.ResourceSelector, error) {
-	return backup.ResourceSelector{}, nil
+// AppliesTo returns information about which resources this action should be invoked for.
+// A BackupPlugin's Execute function will only be invoked on items that match the returned
+// selector. A zero-valued ResourceSelector matches all resources.
+func (p *BackupPlugin) AppliesTo() (velero.ResourceSelector, error) {
+	return velero.ResourceSelector{}, nil
 }
 
-// Execute sets a custom annotation on the item being backed up.
-func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []backup.ResourceIdentifier, error) {
-	p.log.Info("Hello from BackupPlugin!")
+// Execute allows the ItemAction to perform arbitrary logic with the item being backed up,
+// in this case, setting a custom annotation on the item being backed up.
+func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []velero.ResourceIdentifier, error) {
+	p.log.Info("Hello from my BackupPlugin!")
 
 	metadata, err := meta.Accessor(item)
 	if err != nil {
@@ -50,7 +53,7 @@ func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (ru
 		annotations = make(map[string]string)
 	}
 
-	annotations["velero.io/my-plugin"] = "1"
+	annotations["velero.io/my-backup-plugin"] = "1"
 
 	metadata.SetAnnotations(annotations)
 

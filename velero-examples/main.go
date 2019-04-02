@@ -1,5 +1,5 @@
 /*
-Copyright 2017 the Heptio Ark contributors.
+Copyright 2017, 2019 the Velero contributors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,16 +17,16 @@ limitations under the License.
 package main
 
 import (
-	veleroplugin "github.com/heptio/velero/pkg/plugin"
+	veleroplugin "github.com/heptio/velero/pkg/plugin/framework"
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	veleroplugin.NewServer(veleroplugin.NewLogger()).
-		RegisterBackupItemAction("backup-plugin", newBackupPlugin).
-		RegisterObjectStore("file", newFileObjectStore).
-		RegisterRestoreItemAction("restore-plugin", newMyRestorePlugin).
-		RegisterBlockStore("example-blockstore", newNoOpBlockStore).
+	veleroplugin.NewServer().
+		RegisterBackupItemAction("example/backup-plugin", newBackupPlugin).
+		RegisterObjectStore("example/object-store-plugin", newObjectStorePlugin).
+		RegisterRestoreItemAction("example/restore-plugin", newRestorePlugin).
+		RegisterVolumeSnapshotter("example/volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
 		Serve()
 }
 
@@ -34,14 +34,14 @@ func newBackupPlugin(logger logrus.FieldLogger) (interface{}, error) {
 	return &BackupPlugin{log: logger}, nil
 }
 
-func newFileObjectStore(logger logrus.FieldLogger) (interface{}, error) {
+func newObjectStorePlugin(logger logrus.FieldLogger) (interface{}, error) {
 	return &FileObjectStore{log: logger}, nil
 }
 
-func newMyRestorePlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &MyRestorePlugin{log: logger}, nil
+func newRestorePlugin(logger logrus.FieldLogger) (interface{}, error) {
+	return &RestorePlugin{log: logger}, nil
 }
 
-func newNoOpBlockStore(logger logrus.FieldLogger) (interface{}, error) {
-	return &NoOpBlockStore{FieldLogger: logger}, nil
+func newNoOpVolumeSnapshotterPlugin(logger logrus.FieldLogger) (interface{}, error) {
+	return &NoOpVolumeSnapshotter{FieldLogger: logger}, nil
 }
