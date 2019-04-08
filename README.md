@@ -36,6 +36,9 @@ $ make container IMAGE=your-repo/your-name:here
 
 ## Deploying the plugins
 
+***Note***: Currently this plugin is intended to work with the currently unreleased 1.0.0 version of velero. If you're running a version of velero that isn't that please clone and build your repo from the following [commit](https://github.com/faiq/velero-plugin-example/tree/499abcc55b729ce5e64cc5ebc6e3376bb51a4136). Alternatively, you can update your velero deployment on kubernetes with the [master tag](https://github.com/heptio/velero/blob/master/docs/image-tagging.md) if you want to use the latest version of this example plugin.
+
+
 To deploy your plugin image to an Velero server:
 
 1. Make sure your image is pushed to a registry that is accessible to your cluster's nodes.
