@@ -1,4 +1,4 @@
-# Copyright 2017 the Heptio Ark contributors.
+# Copyright 2017, 2019 the Velero contributors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ BIN ?= $(wildcard velero-*)
 # This repo's root import path (under GOPATH).
 PKG := github.com/heptio/velero-plugin-example
 
-BUILD_IMAGE ?= golang:1.11-alpine3.8
+BUILD_IMAGE ?= golang:1.12-stretch
 
 IMAGE ?= gcr.io/heptio-images/velero-plugin-example
 
@@ -71,6 +71,7 @@ shell: build-dirs
 		-v $$(pwd)/.go/std:/go/std \
 		-v $$(pwd):/go/src/$(PKG) \
 		-v $$(pwd)/.go/std/$(GOOS)_$(GOARCH):/usr/local/go/pkg/$(GOOS)_$(GOARCH)_static \
+		-v "$$(pwd)/.go/go-build:/.cache/go-build:delegated" \
 		-e CGO_ENABLED=0 \
 		-w /go/src/$(PKG) \
 		$(BUILD_IMAGE) \
