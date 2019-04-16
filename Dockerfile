@@ -1,4 +1,4 @@
-# Copyright 2017 the Heptio Ark contributors.
+# Copyright 2017, 2019 the Velero contributors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM alpine:3.6
+FROM debian:stretch-slim
 RUN mkdir /plugins
 ADD velero-* /plugins/
 USER nobody:nobody
-ENTRYPOINT ["/bin/ash", "-c", "cp /plugins/* /target/."]
+ENTRYPOINT ["/bin/bash", "-c", "cp /plugins/* /target/."]
