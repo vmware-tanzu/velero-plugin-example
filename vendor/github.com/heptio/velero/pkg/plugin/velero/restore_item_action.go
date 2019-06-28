@@ -45,7 +45,7 @@ type RestoreItemActionExecuteInput struct {
 	Item runtime.Unstructured
 	// ItemFromBackup is the item taken from the pristine backed up version of resource.
 	ItemFromBackup runtime.Unstructured
-	// Restore is the representation of the restore resource processed by Ark.
+	// Restore is the representation of the restore resource processed by Velero.
 	Restore *api.Restore
 }
 
@@ -57,6 +57,11 @@ type RestoreItemActionExecuteOutput struct {
 	// AdditionalItems is a list of additional related items that should
 	// be restored.
 	AdditionalItems []ResourceIdentifier
+
+	// SkipRestore tells velero to stop executing further actions
+	// on this item, and skip the restore step. When this field's
+	// value is true, AdditionalItems will be ignored.
+	SkipRestore bool
 }
 
 // NewRestoreItemActionExecuteOutput creates a new RestoreItemActionExecuteOutput
@@ -64,4 +69,10 @@ func NewRestoreItemActionExecuteOutput(item runtime.Unstructured) *RestoreItemAc
 	return &RestoreItemActionExecuteOutput{
 		UpdatedItem: item,
 	}
+}
+
+// WithoutRestore returns SkipRestore for RestoreItemActionExecuteOutput
+func (r *RestoreItemActionExecuteOutput) WithoutRestore() *RestoreItemActionExecuteOutput {
+	r.SkipRestore = true
+	return r
 }
