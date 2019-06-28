@@ -54,7 +54,7 @@ func newObjectStoreGRPCClient(base *clientBase, clientConn *grpc.ClientConn) int
 // configuration key-value pairs. It returns an error if the ObjectStore
 // cannot be initialized from the provided config.
 func (c *ObjectStoreGRPCClient) Init(config map[string]string) error {
-	req := &proto.InitRequest{
+	req := &proto.ObjectStoreInitRequest{
 		Plugin: c.plugin,
 		Config: config,
 	}
@@ -94,6 +94,22 @@ func (c *ObjectStoreGRPCClient) PutObject(bucket, key string, body io.Reader) er
 			return fromGRPCError(err)
 		}
 	}
+}
+
+// ObjectExists checks if there is an object with the given key in the object storage bucket.
+func (c *ObjectStoreGRPCClient) ObjectExists(bucket, key string) (bool, error) {
+	req := &proto.ObjectExistsRequest{
+		Plugin: c.plugin,
+		Bucket: bucket,
+		Key:    key,
+	}
+
+	res, err := c.grpcClient.ObjectExists(context.Background(), req)
+	if err != nil {
+		return false, err
+	}
+
+	return res.Exists, nil
 }
 
 // GetObject retrieves the object with the given key from the specified
