@@ -50,7 +50,7 @@ func (s *ObjectStoreGRPCServer) getImpl(name string) (velero.ObjectStore, error)
 // Init prepares the ObjectStore for usage using the provided map of
 // configuration key-value pairs. It returns an error if the ObjectStore
 // cannot be initialized from the provided config.
-func (s *ObjectStoreGRPCServer) Init(ctx context.Context, req *proto.InitRequest) (response *proto.Empty, err error) {
+func (s *ObjectStoreGRPCServer) Init(ctx context.Context, req *proto.ObjectStoreInitRequest) (response *proto.Empty, err error) {
 	defer func() {
 		if recoveredErr := handlePanic(recover()); recoveredErr != nil {
 			err = recoveredErr
@@ -126,6 +126,27 @@ func (s *ObjectStoreGRPCServer) PutObject(stream proto.ObjectStore_PutObjectServ
 	}
 
 	return nil
+}
+
+// ObjectExists checks if there is an object with the given key in the object storage bucket.
+func (s *ObjectStoreGRPCServer) ObjectExists(ctx context.Context, req *proto.ObjectExistsRequest) (response *proto.ObjectExistsResponse, err error) {
+	defer func() {
+		if recoveredErr := handlePanic(recover()); recoveredErr != nil {
+			err = recoveredErr
+		}
+	}()
+
+	impl, err := s.getImpl(req.Plugin)
+	if err != nil {
+		return nil, newGRPCError(err)
+	}
+
+	exists, err := impl.ObjectExists(req.Bucket, req.Key)
+	if err != nil {
+		return nil, newGRPCError(err)
+	}
+
+	return &proto.ObjectExistsResponse{Exists: exists}, nil
 }
 
 // GetObject retrieves the object with the given key from the specified
