@@ -70,6 +70,27 @@ func (f *FileObjectStore) PutObject(bucket string, key string, body io.Reader) e
 	return err
 }
 
+func (f *FileObjectStore) ObjectExists(bucket, key string) (bool, error){
+        path := filepath.Join(getRoot(), bucket, key)
+
+        log := f.log.WithFields(logrus.Fields{
+                "bucket": bucket,
+                "key":    key,
+                "path":   path,
+        })
+        log.Infof("ObjectExists")
+
+        _, err := os.Stat(path)
+        if err == nil {
+               return true, nil
+        }
+        if os.IsNotExist(err) {
+               return false, nil
+        }
+
+        return true, err
+}
+
 func (f *FileObjectStore) GetObject(bucket, key string) (io.ReadCloser, error) {
 	path := filepath.Join(getRoot(), bucket, key)
 
