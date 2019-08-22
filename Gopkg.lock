@@ -59,7 +59,6 @@
   revision = "2f1d1f20f75d5404f53b9edf6b53ed5505508675"
 
 [[projects]]
-  branch = "master"
   digest = "1:d4cbe62d2c79b1a661e3b8769e64dc4852b874adb570610eb128a67853cf6858"
   name = "github.com/heptio/velero"
   packages = [
@@ -71,7 +70,8 @@
     "pkg/util/logging",
   ]
   pruneopts = "NUT"
-  revision = "cd901ed9a7dca4909dfed106ee6665ca2fa59d4f"
+  revision = "a357f21aec6b39a8244dd23e469cc4519f1fe608"
+  version = "v1.1.0"
 
 [[projects]]
   digest = "1:406338ad39ab2e37b7f4452906442a3dbf0eb3379dd1f06aafb5c07e769a5fbb"
