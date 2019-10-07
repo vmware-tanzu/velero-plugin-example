@@ -16,7 +16,7 @@
 BIN ?= $(wildcard velero-*)
 
 # This repo's root import path (under GOPATH).
-PKG := github.com/heptio/velero-plugin-example
+PKG := github.com/vmware-tanzu/velero-plugin-example
 
 BUILD_IMAGE ?= golang:1.12-stretch
 

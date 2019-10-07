@@ -85,7 +85,7 @@ To run with the example plugins, do the following:
 2. Copy everything from this project into your new project
 
 ```bash
-$ cp -a $GOPATH/src/github.com/heptio/velero-plugin-example/* $GOPATH/src/github.com/someuser/velero-plugins/.
+$ cp -a $GOPATH/src/github.com/vmware-tanzu/velero-plugin-example/* $GOPATH/src/github.com/someuser/velero-plugins/.
 ```
 
 3. Remove the git history
@@ -112,6 +112,6 @@ As of v0.10.0, Velero can host multiple plugins inside of a single, resumable pr
 of any supported type. See `velero-examples/main.go`
 
 
-[1]: https://travis-ci.org/heptio/velero-plugin-example.svg?branch=master
-[2]: https://travis-ci.org/heptio/velero-plugin-example
-[3]: https://github.com/heptio/velero-plugin-example/blob/v0.9.x/README.md#using-the-plugins
+[1]: https://travis-ci.org/vmware-tanzu/velero-plugin-example.svg?branch=master
+[2]: https://travis-ci.org/vmware-tanzu/velero-plugin-example
+[3]: https://github.com/vmware-tanzu/velero-plugin-example/blob/v0.9.x/README.md#using-the-plugins

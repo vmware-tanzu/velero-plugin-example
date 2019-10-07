@@ -20,7 +20,7 @@ import (
 	"math/rand"
 	"strconv"
 
-	"github.com/heptio/velero/pkg/plugin/velero"
+	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
