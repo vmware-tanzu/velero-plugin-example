@@ -20,7 +20,7 @@ PKG := github.com/vmware-tanzu/velero-plugin-example
 
 BUILD_IMAGE ?= golang:1.12-stretch
 
-IMAGE ?= gcr.io/heptio-images/velero-plugin-example
+IMAGE ?= velero/velero-plugin-example
 
 # Which architecture to build - see $(ALL_ARCH) for options.
 # if the 'local' rule is being run, detect the ARCH from 'go env'
