@@ -13,6 +13,7 @@
 # limitations under the License.
 
 FROM golang:1.14-buster AS build
+ENV GOPROXY=https://proxy.golang.org
 WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-example
 COPY . .
 RUN CGO_ENABLED=0 go build -v -o /go/bin/velero-plugin-example .
