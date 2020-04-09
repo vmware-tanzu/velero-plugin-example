@@ -1,0 +1,19 @@
+name: Continuous Integration
+on: [pull_request, push]
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the code
+      uses: actions/checkout@v2
+    - name: Run make ci
+      run: make ci
+  build-container:
+    name: Build container image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v2
+      - name: Run make container
+        run: VERSION=ci-build make container
