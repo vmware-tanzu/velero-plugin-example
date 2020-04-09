@@ -14,15 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package plugin
 
 import (
 	"math/rand"
 	"strconv"
 
-	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,6 +46,11 @@ type NoOpVolumeSnapshotter struct {
 	logrus.FieldLogger
 	volumes   map[string]Volume
 	snapshots map[string]Snapshot
+}
+
+// NewNoOpVolumeSnapshotter instantiates a NoOpVolumeSnapshotter.
+func NewNoOpVolumeSnapshotter(log logrus.FieldLogger) *NoOpVolumeSnapshotter {
+	return &NoOpVolumeSnapshotter{FieldLogger: log}
 }
 
 var _ velero.VolumeSnapshotter = (*NoOpVolumeSnapshotter)(nil)

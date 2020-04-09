@@ -1,4 +1,4 @@
-# Copyright 2017, 2019 the Velero contributors.
+# Copyright 2017, 2019, 2020 the Velero contributors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM debian:stretch-slim
+FROM golang:1.14-buster AS build
+WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-example
+COPY . .
+RUN CGO_ENABLED=0 go build -v -o /go/bin/velero-plugin-example .
+
+
+FROM ubuntu:bionic
 RUN mkdir /plugins
-ADD velero-* /plugins/
+COPY --from=build /go/bin/velero-plugin-example /plugins/
 USER nobody:nogroup
 ENTRYPOINT ["/bin/bash", "-c", "cp /plugins/* /target/."]

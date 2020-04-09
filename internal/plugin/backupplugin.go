@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package plugin
 
 import (
 	"github.com/sirupsen/logrus"
@@ -29,6 +29,11 @@ import (
 // BackupPlugin is a backup item action plugin for Velero.
 type BackupPlugin struct {
 	log logrus.FieldLogger
+}
+
+// NewBackupPlugin instantiates a BackupPlugin.
+func NewBackupPlugin(log logrus.FieldLogger) *BackupPlugin {
+	return &BackupPlugin{log: log}
 }
 
 // AppliesTo returns information about which resources this action should be invoked for.

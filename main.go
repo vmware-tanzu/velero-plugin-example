@@ -18,30 +18,31 @@ package main
 
 import (
 	"github.com/sirupsen/logrus"
-	veleroplugin "github.com/vmware-tanzu/velero/pkg/plugin/framework"
+	"github.com/vmware-tanzu/velero-plugin-example/internal/plugin"
+	"github.com/vmware-tanzu/velero/pkg/plugin/framework"
 )
 
 func main() {
-	veleroplugin.NewServer().
-		RegisterBackupItemAction("example.io/backup-plugin", newBackupPlugin).
+	framework.NewServer().
 		RegisterObjectStore("example.io/object-store-plugin", newObjectStorePlugin).
-		RegisterRestoreItemAction("example.io/restore-plugin", newRestorePlugin).
 		RegisterVolumeSnapshotter("example.io/volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
+		RegisterRestoreItemAction("example.io/restore-plugin", newRestorePlugin).
+		RegisterBackupItemAction("example.io/backup-plugin", newBackupPlugin).
 		Serve()
 }
 
 func newBackupPlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &BackupPlugin{log: logger}, nil
+	return plugin.NewBackupPlugin(logger), nil
 }
 
 func newObjectStorePlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &FileObjectStore{log: logger}, nil
+	return plugin.NewFileObjectStore(logger), nil
 }
 
 func newRestorePlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &RestorePlugin{log: logger}, nil
+	return plugin.NewRestorePlugin(logger), nil
 }
 
 func newNoOpVolumeSnapshotterPlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &NoOpVolumeSnapshotter{FieldLogger: logger}, nil
+	return plugin.NewNoOpVolumeSnapshotter(logger), nil
 }

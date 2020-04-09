@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package plugin
 
 import (
 	"errors"
@@ -30,6 +30,11 @@ import (
 
 type FileObjectStore struct {
 	log logrus.FieldLogger
+}
+
+// NewFileObjectStore instantiates a FileObjectStore.
+func NewFileObjectStore(log logrus.FieldLogger) *FileObjectStore {
+	return &FileObjectStore{log: log}
 }
 
 // Init initializes the plugin. After v0.10.0, this can be called multiple times.
@@ -70,25 +75,25 @@ func (f *FileObjectStore) PutObject(bucket string, key string, body io.Reader) e
 	return err
 }
 
-func (f *FileObjectStore) ObjectExists(bucket, key string) (bool, error){
-        path := filepath.Join(getRoot(), bucket, key)
+func (f *FileObjectStore) ObjectExists(bucket, key string) (bool, error) {
+	path := filepath.Join(getRoot(), bucket, key)
 
-        log := f.log.WithFields(logrus.Fields{
-                "bucket": bucket,
-                "key":    key,
-                "path":   path,
-        })
-        log.Infof("ObjectExists")
+	log := f.log.WithFields(logrus.Fields{
+		"bucket": bucket,
+		"key":    key,
+		"path":   path,
+	})
+	log.Infof("ObjectExists")
 
-        _, err := os.Stat(path)
-        if err == nil {
-               return true, nil
-        }
-        if os.IsNotExist(err) {
-               return false, nil
-        }
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
 
-        return true, err
+	return true, err
 }
 
 func (f *FileObjectStore) GetObject(bucket, key string) (io.ReadCloser, error) {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package plugin
 
 import (
 	"github.com/sirupsen/logrus"
@@ -25,6 +25,11 @@ import (
 // RestorePlugin is a restore item action plugin for Velero
 type RestorePlugin struct {
 	log logrus.FieldLogger
+}
+
+// NewRestorePlugin instantiates a RestorePlugin.
+func NewRestorePlugin(log logrus.FieldLogger) *RestorePlugin {
+	return &RestorePlugin{log: log}
 }
 
 // AppliesTo returns information about which resources this action should be invoked for.
