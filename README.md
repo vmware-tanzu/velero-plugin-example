@@ -13,8 +13,7 @@ Velero currently supports the following kinds of plugins:
 - **Backup Item Action** - performs arbitrary logic on individual items prior to storing them in the backup file.
 - **Restore Item Action** - performs arbitrary logic on individual items prior to restoring them in the Kubernetes cluster.
 
-Velero can host multiple plugins inside of a single, resumable process. The plugins can be
-of any supported type. See `velero-examples/main.go`
+Velero can host multiple plugins inside of a single, resumable process. The plugins can be of any supported type. See `main.go`.
 
 For more information, please see the full [plugin documentation](https://velero.io/docs/master/overview-plugins/).
 
@@ -32,10 +31,10 @@ To build the image, run
 $ make container
 ```
 
-This builds an image tagged as `velero/velero-plugin-example:latest`. If you want to specify a different name, run
+This builds an image tagged as `velero/velero-plugin-example:master`. If you want to specify a different name or version/tag, run:
 
 ```bash
-$ make container IMAGE=your-repo/your-name:here
+$ IMAGE=your-repo/your-name VERSION=your-version-tag make container 
 ```
 
 ## Deploying the plugins
@@ -109,4 +108,3 @@ $ dep ensure
 
 [1]: https://travis-ci.org/vmware-tanzu/velero-plugin-example.svg?branch=master
 [2]: https://travis-ci.org/vmware-tanzu/velero-plugin-example
-[3]: https://github.com/vmware-tanzu/velero-plugin-example/blob/v0.9.x/README.md#using-the-plugins

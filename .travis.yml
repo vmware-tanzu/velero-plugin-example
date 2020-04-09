@@ -1,6 +1,6 @@
 language: go
 
 go:
-  - 1.9.x
+  - 1.14.x
 
-script: make all-ci
+script: make ci
