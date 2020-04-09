@@ -1,6 +1,6 @@
 # Velero Example Plugins
 
-[![Build Status][1]][2]
+![Build Status][1]
 
 This repository contains example plugins for Velero.
 
@@ -106,5 +106,5 @@ If you need to pull in additional dependencies to your vendor directory, just ru
 $ dep ensure
 ```
 
-[1]: https://travis-ci.org/vmware-tanzu/velero-plugin-example.svg?branch=master
-[2]: https://travis-ci.org/vmware-tanzu/velero-plugin-example
+[1]: https://github.com/vmware-tanzu/velero-plugin-example/workflows/Continuous%20Integration/badge.svg
+

@@ -34,7 +34,7 @@ test:
 
 # ci is a convenience target for CI builds.
 .PHONY: ci
-ci: verify-modules local test container
+ci: verify-modules local test
 
 # container builds a Docker image containing the binary.
 .PHONY: container
