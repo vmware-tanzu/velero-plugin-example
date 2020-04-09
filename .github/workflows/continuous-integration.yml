@@ -1,0 +1,11 @@
+name: Continuous Integration
+on: [pull_request, push]
+jobs:
+  build:
+    name: Run CI
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the code
+      uses: actions/checkout@v2
+    - name: Run make ci
+      run: make ci
