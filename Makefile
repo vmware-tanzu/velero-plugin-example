@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # The binary to build (just the basename).
-BIN ?= $(wildcard velero-*)
+BIN ?= velero-plugin-example
 
 # This repo's root import path (under GOPATH).
 PKG := github.com/vmware-tanzu/velero-plugin-example
@@ -75,7 +75,7 @@ shell: build-dirs
 		-e CGO_ENABLED=0 \
 		-w /go/src/$(PKG) \
 		$(BUILD_IMAGE) \
-		go build -installsuffix "static" -i -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) ./$(BIN)
+		go build -installsuffix "static" -i -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) .
 
 build-dirs:
 	@mkdir -p _output/bin/$(GOOS)/$(GOARCH)
@@ -92,7 +92,7 @@ ci-%:
 
 ci:
 	mkdir -p _output
-	CGO_ENABLED=0 go build -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) ./$(BIN)
+	CGO_ENABLED=0 go build -v -o _output/bin/$(GOOS)/$(GOARCH)/$(BIN) .
 
 clean:
 	@echo "cleaning"
