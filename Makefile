@@ -34,7 +34,7 @@ test:
 
 # ci is a convenience target for CI builds.
 .PHONY: ci
-ci: local test
+ci: verify-modules local test container
 
 # container builds a Docker image containing the binary.
 .PHONY: container
@@ -50,14 +50,25 @@ ifeq ($(TAG_LATEST), true)
 	docker push $(IMAGE):latest
 endif
 
+# modules updates Go module files
+.PHONY: modules
+modules:
+	go mod tidy
+
+# verify-modules ensures Go module files are up to date
+.PHONY: verify-modules
+verify-modules: modules
+	@if !(git diff --quiet HEAD -- go.sum go.mod); then \
+		echo "go module files are out of date, please commit the changes to go.mod and go.sum"; exit 1; \
+	fi
+
 # build-dirs creates the necessary directories for a build in the local environment.
 .PHONY: build-dirs
 build-dirs:
 	@mkdir -p _output/bin/$(GOOS)/$(GOARCH)
-	@mkdir -p .go/src/$(PKG) .go/pkg .go/bin .go/std/$(GOOS)/$(GOARCH) .go/go-build
 
 # clean removes build artifacts from the local environment.
 .PHONY: clean
 clean:
 	@echo "cleaning"
-	rm -rf .go _output
+	rm -rf _output
