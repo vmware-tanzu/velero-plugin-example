@@ -15,7 +15,7 @@ Velero currently supports the following kinds of plugins:
 
 Velero can host multiple plugins inside of a single, resumable process. The plugins can be of any supported type. See `main.go`.
 
-For more information, please see the full [plugin documentation](https://velero.io/docs/master/overview-plugins/).
+For more information, please see the full [plugin documentation](https://velero.io/docs/main/overview-plugins/).
 
 ## Building the plugins
 
@@ -31,7 +31,7 @@ To build the image, run
 $ make container
 ```
 
-This builds an image tagged as `velero/velero-plugin-example:master`. If you want to specify a different name or version/tag, run:
+This builds an image tagged as `velero/velero-plugin-example:main`. If you want to specify a different name or version/tag, run:
 
 ```bash
 $ IMAGE=your-repo/your-name VERSION=your-version-tag make container 
