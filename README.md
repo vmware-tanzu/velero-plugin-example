@@ -103,7 +103,7 @@ You most likely won't need to edit this file, as long as you follow this convent
 If you need to pull in additional dependencies to your vendor directory, just run
 
 ```bash
-$ dep ensure
+$ make modules
 ```
 
 [1]: https://github.com/vmware-tanzu/velero-plugin-example/workflows/Continuous%20Integration/badge.svg
