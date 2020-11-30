@@ -1,0 +1,12 @@
+[
+  {
+    "name": "example",
+    "config": {
+      "context": ".",
+      "image": "velero/example",
+      "live_reload_deps": [
+        "internal", "main.go"
+      ]
+    }
+  }
+]

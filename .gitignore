@@ -2,3 +2,5 @@ _output
 velero-plugin-example
 
 .go
+
+.tiltbuild
