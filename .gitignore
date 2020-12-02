@@ -3,4 +3,4 @@ velero-plugin-example
 
 .go
 
-.tiltbuild
+_tiltbuild
