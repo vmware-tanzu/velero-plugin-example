@@ -33,6 +33,8 @@ func NewRestorePlugin(log logrus.FieldLogger) *RestorePlugin {
 }
 
 // AppliesTo returns information about which resources this action should be invoked for.
+// The IncludedResources and ExcludedResources slices can include both resources
+// and resources with group names. These work: "ingresses", "ingresses.extensions".
 // A RestoreItemAction's Execute function will only be invoked on items that match the returned
 // selector. A zero-valued ResourceSelector matches all resources.g
 func (p *RestorePlugin) AppliesTo() (velero.ResourceSelector, error) {
