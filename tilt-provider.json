@@ -1,0 +1,10 @@
+{
+  "plugin_name": "examples",
+  "context": ".",
+  "image": "velero/example",
+  "live_reload_deps": [
+    "internal",
+    "main.go"
+  ],
+  "go_main": "."
+}
