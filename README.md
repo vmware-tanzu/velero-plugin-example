@@ -60,6 +60,11 @@ Volume snapshot storage:
 2. Change the value of `spec.provider` to enable a **Volume Snapshotter** plugin
 3. Save and quit. The plugin will be used for the next `backup/restore`
 
+Backup/Restore actions:
+
+1. Add the plugin to Velero as described in the Deploying the plugins section.
+2. The plugin will be used for the next `backup/restore`.
+
 ## Examples
 
 To run with the example plugins, do the following:
