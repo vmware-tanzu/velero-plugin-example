@@ -17,7 +17,6 @@ limitations under the License.
 package plugin
 
 import (
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -25,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,8 +41,13 @@ func NewFileObjectStore(log logrus.FieldLogger) *FileObjectStore {
 func (f *FileObjectStore) Init(config map[string]string) error {
 	f.log.Infof("FileObjectStore.Init called")
 
-	path := filepath.Join(getRoot(), config["bucket"], config["prefix"])
-	return os.MkdirAll(path, 0755)
+	for _, subdir := range getSubDirectoryLayout() {
+		path := filepath.Join(getRoot(), config["bucket"], config["prefix"], subdir)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return errors.Wrapf(err, "could not create directory %s", path)
+		}
+	}
+	return nil
 }
 
 func (f *FileObjectStore) PutObject(bucket string, key string, body io.Reader) error {
@@ -212,4 +217,15 @@ func getRoot() string {
 	}
 
 	return defaultRoot
+}
+
+// https://github.com/vmware-tanzu/velero/blob/eefd12b3e48323ec59f88ef5bbbf8251fad04a26/pkg/persistence/object_store_layout.go
+func getSubDirectoryLayout() []string {
+	return []string{
+		"backups",
+		"restores",
+		"restic",
+		"metadata",
+		"plugins",
+	}
 }
