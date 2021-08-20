@@ -18,9 +18,9 @@ WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-example
 COPY . .
 RUN CGO_ENABLED=0 go build -o /go/bin/velero-plugin-example .
 
+FROM busybox:1.33.1 AS busybox
 
-FROM ubuntu:bionic
-RUN mkdir /plugins
+FROM gcr.io/distroless/base-debian10:nonroot
 COPY --from=build /go/bin/velero-plugin-example /plugins/
-USER nobody:nogroup
-ENTRYPOINT ["/bin/bash", "-c", "cp /plugins/* /target/."]
+USER nonroot:nonroot
+ENTRYPOINT ["cp", "/plugins/velero-plugin-example", "/target/."]
