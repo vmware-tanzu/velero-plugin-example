@@ -20,8 +20,7 @@ RUN CGO_ENABLED=0 go build -o /go/bin/velero-plugin-example .
 
 FROM busybox:1.33.1 AS busybox
 
-FROM gcr.io/distroless/base-debian10:nonroot
+FROM scratch
 COPY --from=build /go/bin/velero-plugin-example /plugins/
 COPY --from=busybox /bin/cp /bin/cp
-USER nonroot:nonroot
 ENTRYPOINT ["cp", "/plugins/velero-plugin-example", "/target/."]
