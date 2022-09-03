@@ -48,7 +48,7 @@ func (p *BackupPlugin) AppliesTo() (velero.ResourceSelector, error) {
 // Execute allows the ItemAction to perform arbitrary logic with the item being backed up,
 // in this case, setting a custom annotation on the item being backed up.
 func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (runtime.Unstructured, []velero.ResourceIdentifier, error) {
-	p.log.Info("Hello from my BackupPlugin!")
+	p.log.Info("Hello from my BackupPlugin(v1)!")
 
 	metadata, err := meta.Accessor(item)
 	if err != nil {

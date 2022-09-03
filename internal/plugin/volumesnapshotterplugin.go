@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
+	vsv1 "github.com/vmware-tanzu/velero/pkg/plugin/velero/volumesnapshotter/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -53,7 +53,7 @@ func NewNoOpVolumeSnapshotter(log logrus.FieldLogger) *NoOpVolumeSnapshotter {
 	return &NoOpVolumeSnapshotter{FieldLogger: log}
 }
 
-var _ velero.VolumeSnapshotter = (*NoOpVolumeSnapshotter)(nil)
+var _ vsv1.VolumeSnapshotter = (*NoOpVolumeSnapshotter)(nil)
 
 // Init prepares the VolumeSnapshotter for usage using the provided map of
 // configuration key-value pairs. It returns an error if the VolumeSnapshotter

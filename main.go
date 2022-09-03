@@ -27,12 +27,18 @@ func main() {
 		RegisterObjectStore("example.io/object-store-plugin", newObjectStorePlugin).
 		RegisterVolumeSnapshotter("example.io/volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
 		RegisterRestoreItemAction("example.io/restore-plugin", newRestorePlugin).
+		RegisterRestoreItemActionV2("example.io/restore-pluginv2", newRestorePluginV2).
 		RegisterBackupItemAction("example.io/backup-plugin", newBackupPlugin).
+		RegisterBackupItemActionV2("example.io/backup-pluginv2", newBackupPluginV2).
 		Serve()
 }
 
 func newBackupPlugin(logger logrus.FieldLogger) (interface{}, error) {
 	return plugin.NewBackupPlugin(logger), nil
+}
+
+func newBackupPluginV2(logger logrus.FieldLogger) (interface{}, error) {
+	return plugin.NewBackupPluginV2(logger), nil
 }
 
 func newObjectStorePlugin(logger logrus.FieldLogger) (interface{}, error) {
@@ -41,6 +47,10 @@ func newObjectStorePlugin(logger logrus.FieldLogger) (interface{}, error) {
 
 func newRestorePlugin(logger logrus.FieldLogger) (interface{}, error) {
 	return plugin.NewRestorePlugin(logger), nil
+}
+
+func newRestorePluginV2(logger logrus.FieldLogger) (interface{}, error) {
+	return plugin.NewRestorePluginV2(logger), nil
 }
 
 func newNoOpVolumeSnapshotterPlugin(logger logrus.FieldLogger) (interface{}, error) {
