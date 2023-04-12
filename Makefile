@@ -53,7 +53,7 @@ endif
 # modules updates Go module files
 .PHONY: modules
 modules:
-	go mod tidy
+	go mod tidy -compat=1.17
 
 # verify-modules ensures Go module files are up to date
 .PHONY: verify-modules
