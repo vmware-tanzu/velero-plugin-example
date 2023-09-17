@@ -28,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-        "k8s.io/client-go/tools/clientcmd"
-        "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/pkg/errors"
 	v1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -45,7 +45,7 @@ const (
 	// be empty.
 	// This annotation can also be set on the item, which overrides the backup CR value,
 	// to allow for testing multiple action lengths
-	AsyncBIADurationAnnotation         = "velero.io/example-bia-operation-duration"
+	AsyncBIADurationAnnotation = "velero.io/example-bia-operation-duration"
 	// If this annotation is true on the item, then if the BIA duration is set to a
 	// non-zero value, a Secret will be created, and it will be returned as an additional
 	// item with the UpdateAdditionalItemsAfterOperation return flag set to true
@@ -83,20 +83,20 @@ func (p *BackupPluginV2) AppliesTo() (velero.ResourceSelector, error) {
 }
 
 func GetClient() (*kubernetes.Clientset, error) {
-        loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-        configOverrides := &clientcmd.ConfigOverrides{}
-        kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-        clientConfig, err := kubeConfig.ClientConfig()
-        if err != nil {
-                return nil, errors.WithStack(err)
-        }
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	configOverrides := &clientcmd.ConfigOverrides{}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+	clientConfig, err := kubeConfig.ClientConfig()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
 
-        client, err := kubernetes.NewForConfig(clientConfig)
-        if err != nil {
-                return nil, errors.WithStack(err)
-        }
+	client, err := kubernetes.NewForConfig(clientConfig)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
 
-        return client, nil
+	return client, nil
 }
 
 // Execute allows the ItemAction to perform arbitrary logic with the item being backed up,
@@ -153,7 +153,7 @@ func (p *BackupPluginV2) Execute(item runtime.Unstructured, backup *v1.Backup) (
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:    metadata.GetNamespace(),
 				GenerateName: metadata.GetName() + "-",
-				Labels:       map[string]string{
+				Labels: map[string]string{
 					AsyncBIAExampleLabel: "true",
 				},
 			},
@@ -215,7 +215,7 @@ func (p *BackupPluginV2) Progress(operationID string, backup *v1.Backup) (velero
 				priorProgressCalls = i
 			}
 		}
-		annotations[AsyncBIAProgressAnnotation] = strconv.Itoa(priorProgressCalls+1)
+		annotations[AsyncBIAProgressAnnotation] = strconv.Itoa(priorProgressCalls + 1)
 		secret.Annotations = annotations
 		if _, err := secretClient.CoreV1().Secrets(splitOp[2]).Update(context.TODO(), secret, metav1.UpdateOptions{}); err != nil {
 			return progress, errors.Wrapf(err, "error updating %s secret", splitOp[3])

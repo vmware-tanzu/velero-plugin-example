@@ -13,12 +13,13 @@
 # limitations under the License.
 
 FROM golang:1.21-bookworm AS build
+
 ENV GOPROXY=https://proxy.golang.org
 WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-example
 COPY . .
 RUN CGO_ENABLED=0 go build -o /go/bin/velero-plugin-example .
 
-FROM busybox:1.33.1 AS busybox
+FROM busybox:1.36.1 AS busybox
 
 FROM scratch
 COPY --from=build /go/bin/velero-plugin-example /plugins/

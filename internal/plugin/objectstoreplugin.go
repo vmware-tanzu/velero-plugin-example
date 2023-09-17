@@ -19,7 +19,6 @@ package plugin
 import (
 	"errors"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,7 +119,7 @@ func (f *FileObjectStore) ListCommonPrefixes(bucket, prefix, delimiter string) (
 	})
 	log.Infof("ListCommonPrefixes")
 
-	infos, err := ioutil.ReadDir(path)
+	infos, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +144,7 @@ func (f *FileObjectStore) ListObjects(bucket, prefix string) ([]string, error) {
 	})
 	log.Infof("ListObjects")
 
-	infos, err := ioutil.ReadDir(path)
+	infos, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +177,7 @@ func (f *FileObjectStore) DeleteObject(bucket, key string) error {
 		backupPath = filepath.Join(getRoot(), bucket, keyParts[0], keyParts[1])
 	}
 	if backupPath != "" {
-		infos, err := ioutil.ReadDir(backupPath)
+		infos, err := os.ReadDir(backupPath)
 		if err != nil {
 			return err
 		}

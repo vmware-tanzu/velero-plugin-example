@@ -80,7 +80,7 @@ func (p *NoOpVolumeSnapshotter) CreateVolumeFromSnapshot(snapshotID, volumeType,
 	p.Infof("CreateVolumeFromSnapshot called", snapshotID, volumeType, volumeAZ, *iops)
 	var volumeID string
 	for {
-		volumeID := snapshotID + ".vol." + strconv.FormatUint(rand.Uint64(), 10)
+		volumeID = snapshotID + ".vol." + strconv.FormatUint(rand.Uint64(), 10)
 		if _, ok := p.volumes[volumeID]; ok {
 			// Duplicate ? Retry
 			continue
@@ -164,7 +164,7 @@ func (p *NoOpVolumeSnapshotter) GetVolumeID(unstructuredPV runtime.Unstructured)
 	}
 
 	if pv.Spec.HostPath == nil {
-		return "", nil
+		return "", errors.New("spec.hostPath is nil")
 	}
 
 	if pv.Spec.HostPath.Path == "" {
