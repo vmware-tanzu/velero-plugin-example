@@ -17,12 +17,22 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/sirupsen/logrus"
 	"github.com/vmware-tanzu/velero-plugin-example/internal/plugin"
+	"github.com/vmware-tanzu/velero/pkg/client"
 	"github.com/vmware-tanzu/velero/pkg/plugin/framework"
+	plugincommon "github.com/vmware-tanzu/velero/pkg/plugin/framework/common"
 )
 
 func main() {
+	config, err := client.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: Error reading config file: %v\n", err)
+	}
+	f := client.NewFactory("plugins", config)
 	framework.NewServer().
 		RegisterObjectStore("example.io/object-store-plugin", newObjectStorePlugin).
 		RegisterVolumeSnapshotter("example.io/volume-snapshotter-plugin", newNoOpVolumeSnapshotterPlugin).
@@ -30,6 +40,7 @@ func main() {
 		RegisterRestoreItemActionV2("example.io/restore-pluginv2", newRestorePluginV2).
 		RegisterBackupItemAction("example.io/backup-plugin", newBackupPlugin).
 		RegisterBackupItemActionV2("example.io/backup-pluginv2", newBackupPluginV2).
+		RegisterItemBlockAction("example.io/item-block-action-plugin", newItemBlockActionPlugin(f)).
 		Serve()
 }
 
@@ -55,4 +66,8 @@ func newRestorePluginV2(logger logrus.FieldLogger) (interface{}, error) {
 
 func newNoOpVolumeSnapshotterPlugin(logger logrus.FieldLogger) (interface{}, error) {
 	return plugin.NewNoOpVolumeSnapshotter(logger), nil
+}
+
+func newItemBlockActionPlugin(f client.Factory) plugincommon.HandlerInitializer {
+	return plugin.NewItemBlockActionPlugin(f)
 }
