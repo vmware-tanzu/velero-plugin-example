@@ -1,0 +1,147 @@
+# Copyright 2017, 2019 the Velero contributors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-itemblock
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mypvc1
+  namespace: nginx-itemblock
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mypvc2
+  namespace: nginx-itemblock
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment1
+  namespace: nginx-itemblock
+spec:
+  selector:
+    matchLabels:
+        app: nginx1
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        pre.hook.backup.velero.io/command: '["/usr/bin/echo", "pre-hook"]'
+        post.hook.backup.velero.io/command: '["/usr/bin/echo", "post-hook"]'
+      labels:
+        app: nginx1
+        itemblock: myblock
+    spec:
+      volumes:
+        - name: nginx-logs
+          persistentVolumeClaim:
+           claimName: mypvc1
+      containers:
+      - image: docker.io/bitnami/nginx
+        name: nginx
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - mountPath: "/var/log/nginx"
+            name: nginx-logs
+            readOnly: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment2
+  namespace: nginx-itemblock
+spec:
+  selector:
+    matchLabels:
+        app: nginx2
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        pre.hook.backup.velero.io/command: '["/usr/bin/echo", "pre-hook"]'
+        post.hook.backup.velero.io/command: '["/usr/bin/echo", "post-hook"]'
+      labels:
+        app: nginx2
+        itemblock: myblock
+    spec:
+      volumes:
+        - name: nginx-logs
+          persistentVolumeClaim:
+           claimName: mypvc2
+      containers:
+      - image: docker.io/bitnami/nginx
+        name: nginx
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - mountPath: "/var/log/nginx"
+            name: nginx-logs
+            readOnly: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx1
+  name: my-nginx1
+  namespace: nginx-itemblock
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: nginx1
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx2
+  name: my-nginx2
+  namespace: nginx-itemblock
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: nginx2
+  type: LoadBalancer
