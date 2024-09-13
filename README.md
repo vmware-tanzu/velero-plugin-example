@@ -13,6 +13,7 @@ Velero currently supports the following kinds of plugins:
 - **Backup Item Action** - performs arbitrary logic on individual items prior to storing them in the backup file.
 - **Restore Item Action** - performs arbitrary logic on individual items prior to restoring them in the Kubernetes cluster.
 - **Delete Item Action** - performs arbitrary logic on individual items prior to deleting them from the backup file.
+- **Item Block Action** - executes arbitrary logic for individual items to determine which items should be backed up together
 
 Velero can host multiple plugins inside of a single, resumable process. The plugins can be of any supported type. See `main.go`.
 
@@ -61,7 +62,7 @@ Volume snapshot storage:
 2. Change the value of `spec.provider` to enable a **Volume Snapshotter** plugin
 3. Save and quit. The plugin will be used for the next `backup/restore`
 
-Backup/Restore actions:
+Backup/Restore/ItemBlock actions:
 
 1. Add the plugin to Velero as described in the Deploying the plugins section.
 2. The plugin will be used for the next `backup/restore`.
@@ -84,6 +85,7 @@ To run with the example plugins, do the following:
 
 5. Run `kubectl create -f examples/with-pv.yaml` to apply a sample nginx application that uses the example block store plugin. ***Note***: This example works best on a virtual machine, as it uses the host's `/tmp` directory for data storage.
 6. Save and quit. The plugins will be used for the next `backup/restore`
+7. To see the ItemBlockAction example in action, run `kubectl create -f examples/itemblock-pods.yaml` to apply a sample nginx application that uses the example ItemBlockAction plugin. The example IBA plugin will put both pods in the same itemblock, and you can see this from the sequence of pod hook execution -- both pre hooks run, then after ItemBlock backup, both post hooks run.
 
 ## Creating your own plugin project
 
