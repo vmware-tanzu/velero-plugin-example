@@ -17,6 +17,8 @@ limitations under the License.
 package plugin
 
 import (
+	"time"
+
 	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -24,6 +26,14 @@ import (
 
 	v1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
+)
+
+const (
+	// If this annotation is found on the Velero Backup CR, then sleep
+	// for the specified duration (logging before and after)
+	// This will facilitate testing of parallel item backup functionality
+	// This annotation can also be set on the item, which overrides the backup CR value
+	BIAWaitDurationAnnotation = "velero.io/example-bia-wait-duration"
 )
 
 // BackupPlugin is a backup item action plugin for Velero.
@@ -64,5 +74,26 @@ func (p *BackupPlugin) Execute(item runtime.Unstructured, backup *v1.Backup) (ru
 
 	metadata.SetAnnotations(annotations)
 
+	var duration time.Duration
+	if durationStr, ok := annotations[BIAWaitDurationAnnotation]; ok && len(durationStr) != 0 {
+		duration, err = time.ParseDuration(durationStr)
+		if err != nil {
+			p.log.Warnf("Error parsing duration on item: %v", err)
+		}
+	}
+	if duration == 0 && backup.Annotations != nil {
+		if durationStr, ok := backup.Annotations[BIAWaitDurationAnnotation]; ok && len(durationStr) != 0 {
+			duration, err = time.ParseDuration(durationStr)
+			if err != nil {
+				p.log.Warnf("Error parsing duration on Backup: %v", err)
+			}
+		}
+	}
+
+	if duration != 0 {
+		p.log.Infof("BIA for %v, %v/%v, waiting %v", item.GetObjectKind().GroupVersionKind().Kind, metadata.GetNamespace(), metadata.GetName(), duration)
+		time.Sleep(duration)
+		p.log.Infof("BIA for %v, %v/%v, done waiting", item.GetObjectKind().GroupVersionKind().Kind, metadata.GetNamespace(), metadata.GetName())
+	}
 	return item, nil, nil
 }
