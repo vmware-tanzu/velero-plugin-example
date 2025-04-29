@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.21-bookworm AS build
+FROM golang:1.23-bookworm AS build
 ENV GOPROXY=https://proxy.golang.org
 WORKDIR /go/src/github.com/vmware-tanzu/velero-plugin-example
 COPY . .
